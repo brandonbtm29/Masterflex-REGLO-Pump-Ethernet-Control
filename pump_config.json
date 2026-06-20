@@ -1,0 +1,1 @@
+{"max_rpm": 160.0, "ip": "192.168.0.169", "conn_type": "EtherNet/IP", "mode": 2, "direction": "CW", "unit": "mL/min", "flow": "1.00", "vol": "3", "on_time": "0.0", "off_time": "0.0", "batch": "1", "notes": "Run: 1 (check)\nSolution: tap water\nColumn 1: Blank column 1\nColumn 2: Blank column 2\nDetermine dead volume"}

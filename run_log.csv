@@ -1,0 +1,36 @@
+Date/Time,Event,Mode,Flow Rate,Other Info
+5/10/2026 16:04,START,Continuous,1 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: HDPE; Column 2: iPP
+5/10/2026 17:01,END,Continuous,1 mL/min,Dispensed: 56.1009 mL; Duration: 56m 15s
+5/10/2026 17:07,START,Continuous,10 mL/min,Notes: Run: 1; Solution: 1wt% NaCl --> tap water; Column 1: HDPE; Column 2: iPP
+5/10/2026 17:18,END,Continuous,10 mL/min,Dispensed: 108.6595 mL; Duration: 10m 52s
+,,,,
+5/10/2026 23:07,START,Volume,0.500 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: HDPE; Column 2: iPP
+5/11/2026 8:36,END,Volume,0.500 mL/min,Dispensed: 283.2839 mL; Duration: 569m 19s
+5/11/2026 11:12,START,Volume,2 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: blank; Column 2: 100um glass beads
+5/11/2026 11:46,END,Volume,2 mL/min,Dispensed: 66.6709 mL; Duration: 33m 23s
+5/11/2026 12:20,START,Volume,1 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: blank; Column 2: 100um glass beads
+5/11/2026 13:24,END,Volume,1 mL/min,Dispensed: 64.2794 mL; Duration: 64m 21s
+5/11/2026 14:50,START,Volume,0.5 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: blank; Column 2: 100um glass beads
+5/11/2026 16:49,END,Volume,0.5 mL/min,Dispensed: 59.5260 mL; Duration: 118m 36s
+5/11/2026 18:24,START,Volume,0.5 mL/min,"Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: sPS; Column 2: Calgon Carbon F400; Since the balances have aggressive drift correction, and the 0.5mL/min failed with the previous runs, the meters were combined onto one balance (still separated or compartamentalized)."
+5/11/2026 20:25,END,Volume,0.5 mL/min,Dispensed: 60.0106 mL; Duration: 120m 18s
+5/12/2026 10:40,START,Volume,1 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: sPS; Column 2: Calgon Carbon F400
+5/12/2026 11:40,END,Volume,1 mL/min,Dispensed: 60.0106 mL; Duration: 60m 10s
+5/12/2026 12:42,START,Volume,2 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: sPS; Column 2: Calgon Carbon F400
+5/12/2026 13:12,END,Volume,2 mL/min,Dispensed: 60.0100 mL; Duration: 30m 0s
+5/12/2026 13:15,START,Volume,2 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: sPS; Column 2: Calgon Carbon F400
+5/12/2026 13:25,END,Volume,2 mL/min,Dispensed: 19.9849 mL; Duration: 10m 1s
+5/15/2026 17:42,START,Volume,0.25 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: sPS; Column 2: Calgon Carbon F400
+5/15/2026 17:42,END,Volume,0.25 mL/min,Dispensed: 0.0000 mL; Duration: 0m 2s
+5/15/2026 17:55,START,Volume,0.25 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: sPS; Column 2: Calgon Carbon F400
+5/15/2026 21:55,END,Volume,0.25 mL/min,Dispensed: 60.0015 mL; Duration: 240m 14s
+5/16/2026 19:03,START,Volume,0.25 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: Blank column 1; Column 2: Blank column 2; Determine dead volume
+5/17/2026 1:07,END,Volume,0.25 mL/min,Dispensed: 90.0284 mL; Duration: 363m 50s
+5/18/2026 18:04,START,Volume,1 mL/min,Notes: Run: 1; Solution: tap water --> 1wt% NaCl; Column 1: Blank column 1; Column 2: Blank column 2; Determine dead volume
+5/18/2026 19:04,END,Volume,1 mL/min,Dispensed: 59.9976 mL; Duration: 60m 2s
+5/19/2026 18:02,START,Volume,5 mL/min,Notes: Run: 1 (check); Solution: tap water; Column 1: Blank column 1; Column 2: Blank column 2; Determine dead volume
+5/19/2026 18:22,END,Volume,5 mL/min,Dispensed: 100.0048 mL; Duration: 20m 2s
+5/26/2026 15:44,START,Volume,0.1 mL/min,Notes: Run: 1 (check); Solution: tap water; Column 1: Blank column 1; Column 2: Blank column 2; Determine dead volume
+5/26/2026 17:19,END,Volume,0.1 mL/min,Dispensed: 9.4531 mL; Duration: 95m 45s
+2026-06-17 18:42:11,START,Volume,0.5 mL/min,Notes: Run: 1; Solution: 1wt% NaCl --> tap water; Column 1: Blank column 1; Column 2: Blank column 2; Determine dead volume
+2026-06-17 20:02:33,END,Volume,0.5 mL/min,Dispensed: 40.0203 mL; Duration: 80m 22s
