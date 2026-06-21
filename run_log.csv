@@ -32,5 +32,5 @@ Date/Time,Event,Mode,Flow Rate,Other Info
 5/19/2026 18:22,END,Volume,5 mL/min,Dispensed: 100.0048 mL; Duration: 20m 2s
 5/26/2026 15:44,START,Volume,0.1 mL/min,Notes: Run: 1 (check); Solution: tap water; Column 1: Blank column 1; Column 2: Blank column 2; Determine dead volume
 5/26/2026 17:19,END,Volume,0.1 mL/min,Dispensed: 9.4531 mL; Duration: 95m 45s
-2026-06-17 18:42:11,START,Volume,0.5 mL/min,Notes: Run: 1; Solution: 1wt% NaCl --> tap water; Column 1: Blank column 1; Column 2: Blank column 2; Determine dead volume
-2026-06-17 20:02:33,END,Volume,0.5 mL/min,Dispensed: 40.0203 mL; Duration: 80m 22s
+6/17/2026 18:42,START,Volume,0.5 mL/min,Notes: Run: 1; Solution: 1wt% NaCl --> tap water; Column 1: Blank column 1; Column 2: Blank column 2; Determine dead volume
+6/17/2026 20:02,END,Volume,0.5 mL/min,Dispensed: 40.0203 mL; Duration: 80m 22s
