@@ -1,14 +1,29 @@
 # Masterflex REGLO Pump Controller GUI
 
-This project is a custom Python GUI built with `customtkinter` and `pycomm3` to control a Masterflex REGLO Digital Pump Drive via EtherNet/IP.
+This project is a custom Python GUI built with `PyQt6` and `pycomm3` to control a Masterflex REGLO Digital Pump Drive via EtherNet/IP.
 
 ## Technology Stack & Execution
 - **Python Version**: 3.x
-- **UI Framework**: `customtkinter`
+- **UI Framework**: `PyQt6` (with `pyqtdarktheme` for styling)
 - **Networking Protocol**: EtherNet/IP (Explicit Messaging Protocol)
 - **Library**: `pycomm3`
 
-Run the interface with: `python pump_gui.py`
+### Running Locally
+To run the interface directly from the Python script:
+```bash
+pip install -r requirements.txt
+python pump_gui.py
+```
+
+### Building a Standalone Executable
+If you need to distribute this application as a standalone executable (e.g., an `.exe` on Windows or a `.app` on macOS), use the included build script. It automatically uses PyInstaller while preventing common Anaconda environment conflicts.
+```bash
+pip install -r requirements.txt
+python build_app.py
+```
+The resulting executable will be located in the `dist/` directory.
+
+---
 
 ## Critical Project Learnings
 
@@ -20,7 +35,7 @@ You cannot connect to this equipment using a regular `pycomm3` initialization ro
 
 ### 2. The 100ms I/O Watchdog
 The pump has an incredibly aggressive internal safety "heartbeat" watchdog. If you are operating in **Remote Control Mode** and the pump does not receive an EtherNet/IP data packet for longer than a few hundred milliseconds, it will immediately pause its motor. 
-**Solution implemented:** The GUI spins up a background Python threading daemon (`self.poll_data()`) that fires the entire 28-Byte Output array to the pump every 100 milliseconds perpetually while connected.
+**Solution implemented:** The GUI spins up a background thread (`self.poll_pump_data()`) that fires the entire 28-Byte Output array to the pump every 100 milliseconds perpetually while connected.
 
 ### 3. CIP Assembly Instances
 The pump DOES NOT support standard String Tag writes (i.e. you cannot just write to `Output.Run`). You must perform RAW Explicit Messaging over Generic CIP Assemblies (Class Code `0x04`, Attribute `0x03`).
