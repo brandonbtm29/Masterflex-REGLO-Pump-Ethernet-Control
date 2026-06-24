@@ -3,3 +3,10 @@ __pycache__/
 .DS_Store
 Data/
 Ignore/
+
+# PyInstaller
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
