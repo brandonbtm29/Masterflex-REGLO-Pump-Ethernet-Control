@@ -1,0 +1,4 @@
+PyQt6
+pyqtdarktheme
+pycomm3
+pyinstaller
