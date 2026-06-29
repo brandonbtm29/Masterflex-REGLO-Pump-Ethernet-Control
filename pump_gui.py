@@ -1,9 +1,15 @@
 import sys
+import os
+
+# Ensure the working directory is the location of the script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if os.getcwd() != script_dir:
+    os.chdir(script_dir)
+
 import threading
 import time
 import struct
 import json
-import os
 import shutil
 import webbrowser
 import csv
@@ -13,9 +19,9 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QComboBox, QRadioButton, QSlider, QCheckBox, 
                              QTextEdit, QGroupBox, QMessageBox, QFileDialog,
                              QTabWidget, QDialog, QGridLayout, QButtonGroup,
-                             QSizePolicy, QScrollArea)
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QFont, QColor
+                             QSizePolicy, QScrollArea, QListWidget, QListWidgetItem, QAbstractItemView)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QSize
+from PyQt6.QtGui import QFont, QColor, QIcon
 
 import qdarktheme
 
@@ -87,6 +93,15 @@ class SettingsDialog(QDialog):
         self.open_log_btn.clicked.connect(self.on_open_log)
         hw_layout.addWidget(self.open_log_btn, 2, 0, 1, 2)
         
+        self.use_icons_checkbox = QCheckBox("Use Icons for Buttons")
+        self.use_icons_checkbox.setChecked(parent.config_data.get("use_icons", True))
+        self.use_icons_checkbox.toggled.connect(self.on_toggle_icons)
+        hw_layout.addWidget(self.use_icons_checkbox, 3, 0, 1, 2)
+        
+        self.restart_btn = QPushButton("Restart Application")
+        self.restart_btn.clicked.connect(parent.cmd_restart_app)
+        hw_layout.addWidget(self.restart_btn, 4, 0, 1, 2)
+        
         self.tabview.addTab(hw_tab, "Hardware")
 
         # Firmware Tab
@@ -131,6 +146,12 @@ class SettingsDialog(QDialog):
         doc_layout.addWidget(doc_lbl)
         doc_layout.addStretch()
         self.tabview.addTab(doc_tab, "Documentation")
+
+    def on_toggle_icons(self, checked):
+        self.parent().config_data["use_icons"] = checked
+        self.parent().save_all_settings()
+        self.parent().update_button_styles()
+
 
     def on_save(self):
         try:
@@ -235,7 +256,7 @@ class MasterflexPumpGUI(QMainWindow):
         # ---- LEFT PANEL ----
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setFixedWidth(350)
+        scroll_area.setFixedWidth(450)
         scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
         
         left_widget = QWidget()
@@ -355,58 +376,110 @@ class MasterflexPumpGUI(QMainWindow):
 
         # 1. Real-Time Monitor
         monitor_group = QGroupBox("Real-Time Feedback")
-        monitor_layout = QGridLayout(monitor_group)
+        monitor_layout = QVBoxLayout(monitor_group)
+        self.monitor_list = QListWidget()
+        self.monitor_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.monitor_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.monitor_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.monitor_list.setStyleSheet("QListWidget::item { border-bottom: 1px solid #444; padding: 5px; } QListWidget { border: none; background: transparent; }")
+        
+        # Connect drop event to save configuration
+        self.monitor_list.model().rowsMoved.connect(self.save_monitor_order)
 
         font_mon = QFont()
         font_mon.setPointSize(16)
         font_mon.setBold(True)
 
-        self.lbl_mon_flow = QLabel("Flow Rate:\n0.0000")
+        self.lbl_mon_flow = QLabel("Flow Rate\n0.0000")
         self.lbl_mon_flow.setFont(font_mon)
         self.lbl_mon_flow.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
-        monitor_layout.addWidget(self.lbl_mon_flow, 0, 0)
-
-        self.lbl_mon_vol = QLabel("Cumulative Vol:\n0.0000")
+        self.lbl_mon_flow.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.lbl_mon_vol = QLabel("Cum. Volume\n0.0000")
         self.lbl_mon_vol.setFont(font_mon)
         self.lbl_mon_vol.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
-        monitor_layout.addWidget(self.lbl_mon_vol, 0, 1)
-
+        self.lbl_mon_vol.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.reset_vol_btn = QPushButton("Reset Vol")
+        self.reset_vol_btn.setMaximumWidth(120)
         self.reset_vol_btn.clicked.connect(self.cmd_reset_vol)
-        monitor_layout.addWidget(self.reset_vol_btn, 1, 1)
+        vol_widget = QWidget()
+        vol_layout = QVBoxLayout(vol_widget)
+        vol_layout.setContentsMargins(0, 0, 0, 0)
+        vol_layout.addWidget(self.lbl_mon_vol)
+        vol_layout.addWidget(self.reset_vol_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.lbl_mon_calctime = QLabel("Calc. Time:\n0.00 min")
+        self.lbl_mon_calctime = QLabel("Calc. Time\n0.00 min")
         self.lbl_mon_calctime.setFont(font_mon)
         self.lbl_mon_calctime.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
-        monitor_layout.addWidget(self.lbl_mon_calctime, 0, 2)
+        self.lbl_mon_calctime.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.lbl_mon_batch = QLabel("Batch:\n0")
+        self.lbl_mon_batch = QLabel("Batch\n0")
         self.lbl_mon_batch.setFont(font_mon)
         self.lbl_mon_batch.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
-        monitor_layout.addWidget(self.lbl_mon_batch, 0, 3)
-
+        self.lbl_mon_batch.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.reset_batch_btn = QPushButton("Reset Batch")
+        self.reset_batch_btn.setMaximumWidth(120)
         self.reset_batch_btn.clicked.connect(self.cmd_reset_batch)
-        monitor_layout.addWidget(self.reset_batch_btn, 1, 3)
+        batch_widget = QWidget()
+        batch_layout = QVBoxLayout(batch_widget)
+        batch_layout.setContentsMargins(0, 0, 0, 0)
+        batch_layout.addWidget(self.lbl_mon_batch)
+        batch_layout.addWidget(self.reset_batch_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.lbl_mon_rpm = QLabel("Est. RPM:\n0.0")
+        self.lbl_mon_rpm = QLabel("RPM\n0.0")
         self.lbl_mon_rpm.setFont(font_mon)
         self.lbl_mon_rpm.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
-        monitor_layout.addWidget(self.lbl_mon_rpm, 0, 4)
+        self.lbl_mon_rpm.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        right_panel.addWidget(monitor_group)
+        self.monitor_items = {
+            "flow": self.lbl_mon_flow,
+            "vol": vol_widget,
+            "calc_time": self.lbl_mon_calctime,
+            "rpm": self.lbl_mon_rpm,
+            "batch": batch_widget
+        }
+
+        default_order = ["flow", "vol", "calc_time", "rpm", "batch"]
+        self.monitor_order = self.config_data.get("monitor_order", default_order)
+        
+        for key in default_order:
+            if key not in self.monitor_order:
+                self.monitor_order.append(key)
+
+        for key in self.monitor_order:
+            if key in self.monitor_items:
+                widget = self.monitor_items[key]
+                item = QListWidgetItem(self.monitor_list)
+                item.setSizeHint(QSize(0, 90 if key in ["vol", "batch"] else 60))
+                item.setData(Qt.ItemDataRole.UserRole, key)
+                self.monitor_list.addItem(item)
+                self.monitor_list.setItemWidget(item, widget)
+
+        monitor_layout.addWidget(self.monitor_list)
+
+        top_right_layout = QHBoxLayout()
+        right_panel.addLayout(top_right_layout, 1)
+
+        top_right_layout.addWidget(monitor_group)
+
+        logs_layout = QVBoxLayout()
+        top_right_layout.addLayout(logs_layout, 1)
 
         # 2. Console Box
+        lbl_console = QLabel("<b>System Event Log</b>")
+        logs_layout.addWidget(lbl_console)
         self.console_textbox = QTextEdit()
         self.console_textbox.setReadOnly(True)
         self.console_textbox.setMaximumHeight(100)
-        right_panel.addWidget(self.console_textbox)
+        logs_layout.addWidget(self.console_textbox)
         self.log_msg_ui("Ready. Enter Target and Connect.")
 
         # 3. Run Logs
+        lbl_run_log = QLabel("<b>Dispense Run History</b>")
+        logs_layout.addWidget(lbl_run_log)
         self.run_log_textbox = QTextEdit()
         self.run_log_textbox.setReadOnly(True)
-        right_panel.addWidget(self.run_log_textbox, 1)
+        logs_layout.addWidget(self.run_log_textbox, 1)
 
         # 4. Experimental Notes
         notes_group = QGroupBox("Experimental Notes")
@@ -520,6 +593,8 @@ class MasterflexPumpGUI(QMainWindow):
         if "off_time" in self.config_data: self.off_time_entry.setText(self.config_data["off_time"])
         if "batch" in self.config_data: self.batch_entry.setText(self.config_data["batch"])
         if "notes" in self.config_data: self.notes_entry.setPlainText(self.config_data["notes"])
+        self.update_button_styles()
+
 
     def save_all_settings(self):
         self.config_data["max_rpm"] = self.hardware_max_rpm
@@ -540,6 +615,14 @@ class MasterflexPumpGUI(QMainWindow):
         except Exception as e:
             print("Failed to save config:", e)
 
+    def save_monitor_order(self):
+        new_order = []
+        for i in range(self.monitor_list.count()):
+            item = self.monitor_list.item(i)
+            new_order.append(item.data(Qt.ItemDataRole.UserRole))
+        self.config_data["monitor_order"] = new_order
+        self.save_all_settings()
+
     def closeEvent(self, event):
         self.save_all_settings()
         if self.connected:
@@ -557,6 +640,38 @@ class MasterflexPumpGUI(QMainWindow):
     def cmd_open_settings(self):
         dialog = SettingsDialog(self)
         dialog.exec()
+
+    def cmd_restart_app(self):
+        self.save_all_settings()
+        if self.connected:
+            self.toggle_connection()
+        from PyQt6.QtCore import QProcess
+        QProcess.startDetached(sys.executable, sys.argv)
+        QApplication.quit()
+
+    def update_button_styles(self):
+        use_icons = self.config_data.get("use_icons", True)
+        
+        self.discover_btn.setText("🔍" if use_icons else "Search Network")
+        self.discover_btn.setToolTip("Search the network for Masterflex pumps" if use_icons else "")
+        
+        self.settings_btn.setText("⚙" if use_icons else "Hardware Settings")
+        self.settings_btn.setToolTip("Open Hardware Settings" if use_icons else "")
+        
+        self.start_btn.setText("▶" if use_icons else "Start / Run")
+        self.start_btn.setToolTip("Start or Run the pump" if use_icons else "")
+        
+        self.stop_btn.setText("⏹" if use_icons else "Stop / Pause")
+        self.stop_btn.setToolTip("Stop or Pause the pump" if use_icons else "")
+        
+        self.remote_btn.setToolTip("Toggle Remote Mode" if use_icons else "")
+        
+        self.reset_vol_btn.setText("🔄" if use_icons else "Reset Vol")
+        self.reset_vol_btn.setToolTip("Reset Cumulative Volume" if use_icons else "")
+        
+        self.reset_batch_btn.setText("🔄" if use_icons else "Reset Batch")
+        self.reset_batch_btn.setToolTip("Reset Batch Count" if use_icons else "")
+
 
     def log_msg_ui(self, msg):
         self.console_textbox.append(f"[INFO] {msg}")
@@ -643,7 +758,7 @@ class MasterflexPumpGUI(QMainWindow):
             self.signals.discovery_failed_signal.emit(f"Discovery failed: {e}")
 
     def flow_slider_event(self, value):
-        self.flow_entry.setText(f"{value:.2f}")
+        self.flow_entry.setText(f"{value/100:.2f}")
 
     def cmd_start(self):
         self.cmd_apply_params()
@@ -851,6 +966,8 @@ class MasterflexPumpGUI(QMainWindow):
         
         try:
             self.flow_limits_label.setText(f"Calibrated Limits:\nMin: {min_flow:.2f} | Max: {max_flow:.2f}")
+            if max_flow > min_flow:
+                self.flow_slider.setRange(int(min_flow * 100), int(max_flow * 100))
         except: pass
         
         if cur_flow > 0:
@@ -902,18 +1019,20 @@ class MasterflexPumpGUI(QMainWindow):
         mm_size = TUBE_CODES_MM.get(tube_code, 0)
         if mm_size:
             self.tube_indicator.setText(f"Tube Code: {tube_code} ({mm_size} mm ID)")
+            self.tube_indicator.setText(f"Tube Code {tube_code} ({mm_size} mm ID)")
         else:
-            self.tube_indicator.setText(f"Tube Code: {tube_code}")
+            self.tube_indicator.setText(f"Tube Code {tube_code}")
         
         flow_unit_str = self.unit_menu.currentText()
         vol_unit_str = flow_unit_str.split('/')[0] if '/' in flow_unit_str else flow_unit_str
-        self.lbl_mon_flow.setText(f"Flow Rate:\n{cur_flow:.4f} {flow_unit_str}")
-        self.lbl_mon_vol.setText(f"Cumulative Vol:\n{cum_vol:.4f} {vol_unit_str}")
-        self.lbl_mon_calctime.setText(f"Calc. Time:\n{calc_time:.2f} min")
+        self.lbl_mon_flow.setText(f"Flow Rate\n{cur_flow:.4f} {flow_unit_str}")
+        self.lbl_mon_vol.setText(f"Cum. Volume\n{cum_vol:.4f} {vol_unit_str}")
+        self.lbl_mon_calctime.setText(f"Calc. Time\n{calc_time:.2f} min")
         
-        mode = self.mode_group.checkedId()
-        if mode in [1, 2]:
-            self.lbl_mon_batch.setText(f"Batch:\n{batch_current}")
+        if batch_current == 0 and getattr(self, 'last_batch_current', 0) == 1:
+            pass
+        else:
+            self.lbl_mon_batch.setText(f"Batch\n{batch_current}")
             
         max_rpm = self.hardware_max_rpm
         try:
@@ -926,13 +1045,15 @@ class MasterflexPumpGUI(QMainWindow):
         else:
             est_rpm = 0.0
             
-        self.lbl_mon_rpm.setText(f"Est. RPM:\n{est_rpm:.1f}")
+        self.lbl_mon_rpm.setText(f"RPM\n{est_rpm:.1f}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
     
+    app.setWindowIcon(QIcon("Peristaltic pump icon multichannel.ico"))
+    
     window = MasterflexPumpGUI()
-    window.show()
+    window.showMaximized()
     
     sys.exit(app.exec())
