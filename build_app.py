@@ -18,6 +18,7 @@ def build():
         "--noconsole",
         "--onefile",
         "--name", "MasterFlex_Pump_GUI",
+        "--icon", "Peristaltic pump icon multichannel.ico",
         "--exclude-module", "PySide6",
         "--exclude-module", "PyQt5",
         "pump_gui.py"
