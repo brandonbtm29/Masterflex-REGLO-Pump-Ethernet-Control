@@ -19,7 +19,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QComboBox, QRadioButton, QSlider, QCheckBox, 
                              QTextEdit, QGroupBox, QMessageBox, QFileDialog,
                              QTabWidget, QDialog, QGridLayout, QButtonGroup,
-                             QSizePolicy, QScrollArea, QListWidget, QListWidgetItem, QAbstractItemView)
+                             QSizePolicy, QScrollArea, QListWidget, QListWidgetItem, QAbstractItemView,
+                             QFormLayout, QInputDialog, QToolButton)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QSize
 from PyQt6.QtGui import QFont, QColor, QIcon
 
@@ -56,6 +57,29 @@ TUBE_CODES_MM = {
     15: 1.22, 16: 1.33, 17: 1.42, 18: 1.52, 19: 1.65, 20: 1.75, 21: 1.85,
     22: 2.06, 23: 2.29, 24: 2.54, 25: 2.79, 26: 3.17
 }
+
+class CollapsibleBox(QWidget):
+    def __init__(self, title="", parent=None, expanded=True):
+        super().__init__(parent)
+        self.toggle_button = QToolButton(checkable=True, checked=expanded)
+        self.title_text = title
+        self.toggle_button.setStyleSheet("QToolButton { border: none; font-weight: bold; text-align: left; padding: 5px; background-color: #333; color: white; border-radius: 3px; margin-bottom: 2px; } QToolButton:hover { background-color: #444; }")
+        self.toggle_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.toggle_button.clicked.connect(self.on_toggle)
+
+        self.content_area = QWidget()
+        self.content_area.setVisible(expanded)
+        self.on_toggle(expanded)
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(self.toggle_button)
+        main_layout.addWidget(self.content_area)
+
+    def on_toggle(self, checked):
+        self.toggle_button.setText(f"▼ {self.title_text}" if checked else f"▶ {self.title_text}")
+        self.content_area.setVisible(checked)
 
 class SignalManager(QObject):
     log_msg_signal = pyqtSignal(str)
@@ -265,8 +289,8 @@ class MasterflexPumpGUI(QMainWindow):
         main_layout.addWidget(scroll_area)
 
         # 1. Connection Frame
-        conn_group = QGroupBox()
-        conn_layout = QVBoxLayout(conn_group)
+        conn_group = CollapsibleBox("Connection")
+        conn_layout = QVBoxLayout(conn_group.content_area)
         
         self.logo_label = QLabel("MasterFlex\nController")
         self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -298,8 +322,8 @@ class MasterflexPumpGUI(QMainWindow):
         self.left_panel.addWidget(conn_group)
 
         # 2. Controls Frame
-        controls_group = QGroupBox("Operational Controls")
-        controls_layout = QGridLayout(controls_group)
+        controls_group = CollapsibleBox("Operational Controls")
+        controls_layout = QGridLayout(controls_group.content_area)
         
         self.start_btn = QPushButton("Start / Run")
         self.start_btn.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
@@ -341,8 +365,8 @@ class MasterflexPumpGUI(QMainWindow):
         self.left_panel.addWidget(controls_group)
 
         # 3. Parameter Settings Frame
-        params_group = QGroupBox("Parameter Settings")
-        self.params_layout = QGridLayout(params_group)
+        params_group = CollapsibleBox("Parameter Settings")
+        self.params_layout = QGridLayout(params_group.content_area)
         
         self.flow_limits_label = QLabel("Calibrated Limits:\nMin: -- | Max: --")
         self.flow_limits_label.setStyleSheet("color: grey;")
@@ -352,8 +376,8 @@ class MasterflexPumpGUI(QMainWindow):
         self.unit_menu.addItems(list(FLOW_UNITS.values()))
         self.unit_menu.setCurrentText("mL/min")
         self.unit_menu.currentTextChanged.connect(self.cmd_update_unit)
-        
         self.flow_entry = QLineEdit("0.0")
+        self.flow_entry.textChanged.connect(self._sync_flow_rate_token)
         self.flow_slider = QSlider(Qt.Orientation.Horizontal)
         self.flow_slider.setRange(0, 100)
         self.flow_slider.valueChanged.connect(self.flow_slider_event)
@@ -375,13 +399,13 @@ class MasterflexPumpGUI(QMainWindow):
         main_layout.addLayout(right_panel, 1)
 
         # 1. Real-Time Monitor
-        monitor_group = QGroupBox("Real-Time Feedback")
-        monitor_layout = QVBoxLayout(monitor_group)
+        monitor_group = CollapsibleBox("Real-Time Feedback")
+        monitor_layout = QVBoxLayout(monitor_group.content_area)
         self.monitor_list = QListWidget()
         self.monitor_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self.monitor_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.monitor_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.monitor_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.monitor_list.setStyleSheet("QListWidget::item { border-bottom: 1px solid #444; padding: 5px; } QListWidget { border: none; background: transparent; }")
+        self.monitor_list.setStyleSheet("QListWidget::item { border-bottom: 1px solid #444; padding: 5px; } QListWidget::item:selected { background: transparent; color: inherit; border-bottom: 1px solid #444; } QListWidget { border: none; background: transparent; }")
         
         # Connect drop event to save configuration
         self.monitor_list.model().rowsMoved.connect(self.save_monitor_order)
@@ -482,8 +506,8 @@ class MasterflexPumpGUI(QMainWindow):
         logs_layout.addWidget(self.run_log_textbox, 1)
 
         # 4. Experimental Notes
-        notes_group = QGroupBox("Experimental Notes")
-        notes_layout = QGridLayout(notes_group)
+        notes_group = CollapsibleBox("Experimental Notes", expanded=False)
+        notes_layout = QGridLayout(notes_group.content_area)
         
         notes_controls = QVBoxLayout()
         self.open_log_btn = QPushButton("Open Log Folder")
@@ -495,11 +519,45 @@ class MasterflexPumpGUI(QMainWindow):
         notes_controls.addWidget(self.auto_log_cb)
         notes_controls.addStretch()
         
-        notes_layout.addLayout(notes_controls, 0, 0)
+        notes_layout.addLayout(notes_controls, 0, 0, 2, 1)
 
         self.notes_entry = QTextEdit()
         self.notes_entry.setMaximumHeight(100)
         notes_layout.addWidget(self.notes_entry, 0, 1)
+
+        # Metadata Tokens
+        self.gb_tokens = CollapsibleBox("Metadata Tokens", expanded=False)
+        self.tokens_outer_layout = QVBoxLayout(self.gb_tokens.content_area)
+        
+        self.tokens_list = QListWidget()
+        self.tokens_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.tokens_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tokens_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.tokens_list.setStyleSheet("QListWidget::item { border-bottom: 1px solid #444; padding: 2px; } QListWidget::item:selected { background: transparent; color: inherit; border-bottom: 1px solid #444; } QListWidget { border: none; background: transparent; }")
+        
+        self.tokens_outer_layout.addWidget(self.tokens_list)
+        
+        self.btn_add_tab_token = QPushButton("+ Add Token")
+        self.btn_add_tab_token.clicked.connect(self.request_add_custom_token)
+        self.tokens_outer_layout.addWidget(self.btn_add_tab_token)
+        
+        self.token_inputs = {}
+        notes_layout.addWidget(self.gb_tokens, 1, 1)
+        notes_layout.setColumnStretch(1, 1)
+
+        # Load tokens from config or inject defaults
+        saved_tokens = self.config_data.get("metadata_tokens", {})
+        if not saved_tokens:
+            saved_tokens = {
+                "Column Name": "",
+                "Material": "",
+                "Flow rate": "",
+                "Bed length": "",
+                "Run #": ""
+            }
+
+        for name, val in saved_tokens.items():
+            self.add_custom_token_ui(name, val)
 
         right_panel.addWidget(notes_group)
 
@@ -530,6 +588,11 @@ class MasterflexPumpGUI(QMainWindow):
         right_panel.addWidget(status_frame)
 
         self.apply_loaded_settings()
+        self.log_msg("Application started. Ready to connect.")
+        
+        # Auto-connect after 2 seconds if IP exists
+        if self.ip_entry.text():
+            QTimer.singleShot(2000, self.toggle_connection)
         self.update_parameter_visibility()
 
     def update_parameter_visibility(self):
@@ -609,6 +672,9 @@ class MasterflexPumpGUI(QMainWindow):
         self.config_data["batch"] = self.batch_entry.text()
         self.config_data["notes"] = self.notes_entry.toPlainText()
         
+        if hasattr(self, 'token_inputs') and hasattr(self, 'get_token_order'):
+            self.config_data["metadata_tokens"] = {k: self.token_inputs[k].text() for k in self.get_token_order() if k in self.token_inputs}
+            
         try:
             with open(self.config_file, "w") as f:
                 json.dump(self.config_data, f)
@@ -622,6 +688,66 @@ class MasterflexPumpGUI(QMainWindow):
             new_order.append(item.data(Qt.ItemDataRole.UserRole))
         self.config_data["monitor_order"] = new_order
         self.save_all_settings()
+
+    def request_add_custom_token(self):
+        name, ok = QInputDialog.getText(self, "Add Custom Token", "Token Name:")
+        if ok and name.strip():
+            name = name.strip()
+            if name in self.token_inputs:
+                QMessageBox.warning(self, "Warning", "Token already exists!")
+                return
+            self.add_custom_token_ui(name, "")
+
+    def _sync_flow_rate_token(self, text):
+        if hasattr(self, 'token_inputs'):
+            for name, ent in self.token_inputs.items():
+                if name.lower() == "flow rate":
+                    ent.setText(text)
+
+    def add_custom_token_ui(self, name, value):
+        ent = QLineEdit(value)
+        if name.lower() == "flow rate":
+            ent.setEnabled(False)
+            if not value:
+                ent.setText(self.flow_entry.text())
+                
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        
+        lbl = QLabel(name + ":")
+        lbl.setMinimumWidth(80)
+        row_layout.addWidget(lbl)
+        row_layout.addWidget(ent)
+        
+        btn_del = QPushButton("-")
+        btn_del.setFixedWidth(20)
+        btn_del.clicked.connect(lambda _, n=name: self.remove_custom_token(n))
+        row_layout.addWidget(btn_del)
+        
+        item = QListWidgetItem(self.tokens_list)
+        item.setSizeHint(QSize(0, 40))
+        item.setData(Qt.ItemDataRole.UserRole, name)
+        
+        self.tokens_list.addItem(item)
+        self.tokens_list.setItemWidget(item, row_widget)
+        self.token_inputs[name] = ent
+
+    def remove_custom_token(self, name):
+        if name in self.token_inputs:
+            for i in range(self.tokens_list.count()):
+                item = self.tokens_list.item(i)
+                if item.data(Qt.ItemDataRole.UserRole) == name:
+                    self.tokens_list.takeItem(i)
+                    break
+            self.token_inputs.pop(name)
+
+    def get_token_order(self):
+        order = []
+        for i in range(self.tokens_list.count()):
+            item = self.tokens_list.item(i)
+            order.append(item.data(Qt.ItemDataRole.UserRole))
+        return order
 
     def closeEvent(self, event):
         self.save_all_settings()
@@ -714,6 +840,7 @@ class MasterflexPumpGUI(QMainWindow):
                 self.plc = PumpDriver(target)
                 self.plc.open()
                 self.connected = True
+                
                 self.status_label.setText("Status: Connected (IP)")
                 self.status_label.setStyleSheet("color: green; font-weight: bold;")
                 self.connect_btn.setText("Disconnect")
@@ -771,32 +898,31 @@ class MasterflexPumpGUI(QMainWindow):
         self.write_output_data()
         self.log_msg("Command: STOP")
 
+    def _trigger_falling_edge(self, bit_pos, log_msg):
+        # 1-to-0 transition: Set to 1, hold for 500ms, then drop to 0 to trigger falling edge.
+        self.output_data[0] |= (1 << bit_pos)
+        self.write_output_data()
+        
+        def finish_transition():
+            if self.connected:
+                self.output_data[0] &= ~(1 << bit_pos)
+                self.write_output_data()
+                if log_msg:
+                    self.log_msg(log_msg)
+                    
+        QTimer.singleShot(500, finish_transition)
+
     def cmd_remote_toggle(self):
-        self.output_data[0] |= 0b00000100
-        self.write_output_data()
-        time.sleep(0.1)
-        self.output_data[0] &= ~0b00000100
-        self.write_output_data()
-        self.log_msg("Command: TOGGLE REMOTE CONTROL")
+        self._trigger_falling_edge(2, "Command: TOGGLE REMOTE CONTROL")
 
     def cmd_reset_cumulative(self):
-        self.output_data[0] |= 0b00001000
-        self.write_output_data()
-        time.sleep(0.1)
-        self.output_data[0] &= ~0b00001000
-        self.write_output_data()
-        self.log_msg("Command: RESET CUMULATIVE VOL")
+        self._trigger_falling_edge(3, "Command: RESET CUMULATIVE VOL")
         
     def cmd_reset_vol(self):
         self.cmd_reset_cumulative()
         
     def cmd_reset_batch(self):
-        self.output_data[0] |= 0b00010000
-        self.write_output_data()
-        time.sleep(0.1)
-        self.output_data[0] &= ~0b00010000
-        self.write_output_data()
-        self.log_msg("Command: RESET BATCH")
+        self._trigger_falling_edge(1, "Command: RESET BATCH / DISPENSE")
 
     def cmd_apply_params(self):
         try:
@@ -806,13 +932,27 @@ class MasterflexPumpGUI(QMainWindow):
             off_val = float(self.off_time_entry.text())
             batch_val = int(self.batch_entry.text())
 
+            was_running = False
+            if self.connected and (self.output_data[0] & 0b00000001):
+                was_running = True
+                self.cmd_stop()
+                time.sleep(0.1)
+
             struct.pack_into('<f', self.output_data, 8, flow_val)
             struct.pack_into('<f', self.output_data, 12, vol_val)
             struct.pack_into('<f', self.output_data, 16, on_val)
             struct.pack_into('<f', self.output_data, 20, off_val)
             struct.pack_into('<i', self.output_data, 24, batch_val)
+            
+            self.output_data[4] = self.mode_group.checkedId()
 
             self.write_output_data()
+            
+            if was_running:
+                time.sleep(0.1)
+                self.output_data[0] |= 0b00000001
+                self.write_output_data()
+                
             self.log_msg("Parameters Applied (EtherNet/IP)")
         except ValueError:
             self.log_error("Invalid parameter entered. Check your numbers.")
@@ -839,7 +979,8 @@ class MasterflexPumpGUI(QMainWindow):
                 with open("run_log.csv", "a", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     if not file_exists:
-                        writer.writerow(["Date/Time", "Event", "Mode", "Flow Rate", "Other Info"])
+                        token_keys = self.get_token_order() if hasattr(self, 'get_token_order') else []
+                        writer.writerow(["Date/Time", "Event", "Mode", "Flow Rate", "Other Info"] + token_keys)
                     writer.writerow(csv_row)
             except Exception as e:
                 self.log_error(f"Failed to write to CSV: {e}")
@@ -858,6 +999,8 @@ class MasterflexPumpGUI(QMainWindow):
         csv_row = None
         if self.auto_log_cb.isChecked():
             csv_row = [timestamp, "START", mode_str, f"{set_flow} {unit_str}", f"Notes: {notes}" if notes else ""]
+            if hasattr(self, 'get_token_order'):
+                csv_row.extend([self.token_inputs[k].text() for k in self.get_token_order() if k in self.token_inputs])
         else:
             ui_msg += " (Not Saved to CSV)"
             
@@ -881,12 +1024,17 @@ class MasterflexPumpGUI(QMainWindow):
         csv_row = None
         if self.auto_log_cb.isChecked():
             csv_row = [timestamp, "END", mode_str, f"{set_flow} {unit_str}", f"Dispensed: {vol_dispensed:.4f} {vol_unit}; Duration: {int(mins)}m {int(secs)}s"]
+            if hasattr(self, 'get_token_order'):
+                csv_row.extend([self.token_inputs[k].text() for k in self.get_token_order() if k in self.token_inputs])
         else:
             ui_msg += " (Not Saved to CSV)"
             
         self.write_run_log(ui_msg, csv_row)
 
     def cmd_update_direction(self):
+        if self.connected:
+            self.cmd_stop()
+            time.sleep(0.1)
         if self.dir_checkbox.isChecked():
             self.output_data[0] |= 0b01000000
             self.log_msg("Direction set to: CCW")
@@ -909,8 +1057,15 @@ class MasterflexPumpGUI(QMainWindow):
     def cmd_update_mode(self):
         mode = self.mode_group.checkedId()
         self.update_parameter_visibility()
+        
+        if self.connected:
+            self.cmd_stop()
+            time.sleep(0.1)
+            
         self.output_data[4] = mode
-        self.write_output_data()
+        
+        if self.connected:
+            self.write_output_data()
         self.log_msg(f"Mode set to: {mode}")
 
     def write_output_data(self):
@@ -954,7 +1109,7 @@ class MasterflexPumpGUI(QMainWindow):
         status_ok = bool(status_int & 1)
         is_running = bool(status_int & 2)
         dispense_running = bool(status_int & 4)
-        local_mode = bool(status_int & 16)
+        local_mode = not bool(status_int & 128)
         
         tube_code = self.input_data[5]
         
@@ -967,7 +1122,17 @@ class MasterflexPumpGUI(QMainWindow):
         try:
             self.flow_limits_label.setText(f"Calibrated Limits:\nMin: {min_flow:.2f} | Max: {max_flow:.2f}")
             if max_flow > min_flow:
-                self.flow_slider.setRange(int(min_flow * 100), int(max_flow * 100))
+                min_val = int(min_flow * 100)
+                max_val = int(max_flow * 100)
+                if self.flow_slider.minimum() != min_val or self.flow_slider.maximum() != max_val:
+                    try:
+                        intended_val = float(self.flow_entry.text()) * 100
+                    except:
+                        intended_val = self.flow_slider.value()
+                    self.flow_slider.blockSignals(True)
+                    self.flow_slider.setRange(min_val, max_val)
+                    self.flow_slider.setValue(int(intended_val))
+                    self.flow_slider.blockSignals(False)
         except: pass
         
         if cur_flow > 0:
@@ -988,17 +1153,10 @@ class MasterflexPumpGUI(QMainWindow):
                 self.log_started_run()
             else:
                 mode = self.mode_group.checkedId()
-                if mode == 2:
+                if mode == 2:  # Volume
                     try:
                         target_vol = float(self.volume_entry.text())
                         if target_vol > 0 and (cum_vol - self._run_start_vol) >= target_vol:
-                            self.output_data[0] &= ~0b00000001
-                            self.write_output_data()
-                    except: pass
-                elif mode == 1:
-                    try:
-                        target_time = float(self.on_time_entry.text())
-                        if target_time > 0 and (time.time() - self._run_start_time) >= target_time:
                             self.output_data[0] &= ~0b00000001
                             self.write_output_data()
                     except: pass
