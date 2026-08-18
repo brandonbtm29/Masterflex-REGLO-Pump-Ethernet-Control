@@ -898,6 +898,16 @@ class MasterflexPumpGUI(QMainWindow):
         self.write_output_data()
         self.log_msg("Command: STOP")
 
+    def _safe_stop(self):
+        if not self.connected: return
+        self.cmd_stop()
+        for _ in range(15):
+            if len(self.input_data) >= 4:
+                status_int = struct.unpack_from('<i', self.input_data, 0)[0]
+                if not (status_int & 2) and not (status_int & 4):
+                    break
+            time.sleep(0.1)
+
     def _trigger_falling_edge(self, bit_pos, log_msg):
         # 1-to-0 transition: Set to 1, hold for 500ms, then drop to 0 to trigger falling edge.
         self.output_data[0] |= (1 << bit_pos)
@@ -935,16 +945,16 @@ class MasterflexPumpGUI(QMainWindow):
             was_running = False
             if self.connected and (self.output_data[0] & 0b00000001):
                 was_running = True
-                self.cmd_stop()
-                time.sleep(0.1)
+                self._safe_stop()
 
             struct.pack_into('<f', self.output_data, 8, flow_val)
             struct.pack_into('<f', self.output_data, 12, vol_val)
             struct.pack_into('<f', self.output_data, 16, on_val)
             struct.pack_into('<f', self.output_data, 20, off_val)
             struct.pack_into('<i', self.output_data, 24, batch_val)
-            
-            self.output_data[4] = self.mode_group.checkedId()
+            # The hardware does NOT reliably handle EIP target volumes.
+            # Force hardware to always remain in Continuous mode (0) and let software handle Volume mode.
+            self.output_data[4] = 0
 
             self.write_output_data()
             
@@ -1033,8 +1043,7 @@ class MasterflexPumpGUI(QMainWindow):
 
     def cmd_update_direction(self):
         if self.connected:
-            self.cmd_stop()
-            time.sleep(0.1)
+            self._safe_stop()
         if self.dir_checkbox.isChecked():
             self.output_data[0] |= 0b01000000
             self.log_msg("Direction set to: CCW")
@@ -1059,10 +1068,11 @@ class MasterflexPumpGUI(QMainWindow):
         self.update_parameter_visibility()
         
         if self.connected:
-            self.cmd_stop()
-            time.sleep(0.1)
+            self._safe_stop()
             
-        self.output_data[4] = mode
+        # The hardware does NOT reliably handle EIP target volumes.
+        # Force hardware to always remain in Continuous mode (0) and let software handle Volume mode.
+        self.output_data[4] = 0
         
         if self.connected:
             self.write_output_data()
