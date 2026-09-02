@@ -1,0 +1,76 @@
+Date/Time,Event,Mode,Flow Rate,Other Info,Column Name,Material,Flow rate,Bed length,Run #,Column 1,Column 2,Solution
+5/10/2026 16:04,START,Continuous,1 mL/min,,,,,,1,HDPE,iPP,tap water --> 1wt% NaCl
+5/10/2026 17:01,END,Continuous,1 mL/min,Dispensed: 56.1009 mL; Duration: 56m 15s,,,,,1,HDPE,iPP,tap water --> 1wt% NaCl
+5/10/2026 17:07,START,Continuous,10 mL/min,,,,,,1,HDPE,iPP,1wt% NaCl --> tap water
+5/10/2026 17:18,END,Continuous,10 mL/min,Dispensed: 108.6595 mL; Duration: 10m 52s,,,,,1,HDPE,iPP,1wt% NaCl --> tap water
+,,,,
+5/10/2026 23:07,START,Volume,0.500 mL/min,,,,,,1,HDPE,iPP,tap water --> 1wt% NaCl
+5/11/2026 8:36,END,Volume,0.500 mL/min,Dispensed: 283.2839 mL; Duration: 569m 19s,,,,,1,HDPE,iPP,tap water --> 1wt% NaCl
+5/11/2026 11:12,START,Volume,2 mL/min,,,,,,1,blank,100um glass beads,tap water --> 1wt% NaCl
+5/11/2026 11:46,END,Volume,2 mL/min,Dispensed: 66.6709 mL; Duration: 33m 23s,,,,,1,blank,100um glass beads,tap water --> 1wt% NaCl
+5/11/2026 12:20,START,Volume,1 mL/min,,,,,,1,blank,100um glass beads,tap water --> 1wt% NaCl
+5/11/2026 13:24,END,Volume,1 mL/min,Dispensed: 64.2794 mL; Duration: 64m 21s,,,,,1,blank,100um glass beads,tap water --> 1wt% NaCl
+5/11/2026 14:50,START,Volume,0.5 mL/min,,,,,,1,blank,100um glass beads,tap water --> 1wt% NaCl
+5/11/2026 16:49,END,Volume,0.5 mL/min,Dispensed: 59.5260 mL; Duration: 118m 36s,,,,,1,blank,100um glass beads,tap water --> 1wt% NaCl
+5/11/2026 18:24,START,Volume,0.5 mL/min,"Notes: Since the balances have aggressive drift correction, and the 0.5mL/min failed with the previous runs, the meters were combined onto one balance (still separated or compartamentalized).",,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/11/2026 20:25,END,Volume,0.5 mL/min,Dispensed: 60.0106 mL; Duration: 120m 18s,,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/12/2026 10:40,START,Volume,1 mL/min,,,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/12/2026 11:40,END,Volume,1 mL/min,Dispensed: 60.0106 mL; Duration: 60m 10s,,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/12/2026 12:42,START,Volume,2 mL/min,,,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/12/2026 13:12,END,Volume,2 mL/min,Dispensed: 60.0100 mL; Duration: 30m 0s,,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/12/2026 13:15,START,Volume,2 mL/min,,,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/12/2026 13:25,END,Volume,2 mL/min,Dispensed: 19.9849 mL; Duration: 10m 1s,,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/15/2026 17:42,START,Volume,0.25 mL/min,,,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/15/2026 17:42,END,Volume,0.25 mL/min,Dispensed: 0.0000 mL; Duration: 0m 2s,,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/15/2026 17:55,START,Volume,0.25 mL/min,,,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/15/2026 21:55,END,Volume,0.25 mL/min,Dispensed: 60.0015 mL; Duration: 240m 14s,,,,,1,sPS,Calgon Carbon F400,tap water --> 1wt% NaCl
+5/16/2026 19:03,START,Volume,0.25 mL/min,Notes: Determine dead volume,,,,,1,Blank column 1,Blank column 2,tap water --> 1wt% NaCl
+5/17/2026 1:07,END,Volume,0.25 mL/min,Dispensed: 90.0284 mL; Duration: 363m 50s,,,,,1,Blank column 1,Blank column 2,tap water --> 1wt% NaCl
+5/18/2026 18:04,START,Volume,1 mL/min,Notes: Determine dead volume,,,,,1,Blank column 1,Blank column 2,tap water --> 1wt% NaCl
+5/18/2026 19:04,END,Volume,1 mL/min,Dispensed: 59.9976 mL; Duration: 60m 2s,,,,,1,Blank column 1,Blank column 2,tap water --> 1wt% NaCl
+5/19/2026 18:02,START,Volume,5 mL/min,Notes: Determine dead volume,,,,,1 (check),Blank column 1,Blank column 2,tap water
+5/19/2026 18:22,END,Volume,5 mL/min,Dispensed: 100.0048 mL; Duration: 20m 2s,,,,,1 (check),Blank column 1,Blank column 2,tap water
+5/26/2026 15:44,START,Volume,0.1 mL/min,Notes: Determine dead volume,,,,,1 (check),Blank column 1,Blank column 2,tap water
+5/26/2026 17:19,END,Volume,0.1 mL/min,Dispensed: 9.4531 mL; Duration: 95m 45s,,,,,1 (check),Blank column 1,Blank column 2,tap water
+2026-07-27 16:48:47,START,Volume,0.02 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-27 17:59:51,END,Volume,0.02 mL/min,Dispensed: 1.9299 mL; Duration: 71m 4s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-27 17:59:58,START,Volume,0.02 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-27 18:00:35,END,Volume,1 mL/min,Dispensed: 0.1359 mL; Duration: 0m 36s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-27 18:00:36,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-27 20:23:50,END,Volume,1 mL/min,Dispensed: 143.3417 mL; Duration: 143m 14s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-28 12:05:10,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-28 12:05:11,END,Volume,1 mL/min,Dispensed: 0.0000 mL; Duration: 0m 0s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-28 12:05:14,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-28 12:05:15,END,Volume,1 mL/min,Dispensed: 0.1903 mL; Duration: 0m 1s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-28 12:05:55,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-28 15:09:39,END,Volume,1 mL/min,Dispensed: 1837.6787 mL; Duration: 183m 44s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-28 15:48:33,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-28 15:50:12,END,Volume,1 mL/min,Dispensed: 16.3617 mL; Duration: 1m 38s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-29 22:31:40,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-07-29 23:56:31,END,Volume,1 mL/min,Dispensed: -1005.9211 mL; Duration: 84m 51s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-06 15:41:29,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-06 16:54:50,END,Volume,1 mL/min,Dispensed: -122.8486 mL; Duration: 73m 21s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-06 23:32:09,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-06 23:32:16,END,Volume,1 mL/min,Dispensed: 1.1954 mL; Duration: 0m 7s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 02:30:03,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 03:30:24,END,Volume,1 mL/min,Dispensed: 29.9786 mL; Duration: 60m 21s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 12:07:24,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 12:07:40,END,Volume,1 mL/min,Dispensed: 0.1304 mL; Duration: 0m 15s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 14:52:22,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 15:22:23,END,Volume,1 mL/min,Dispensed: 30.0056 mL; Duration: 30m 0s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 16:40:33,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 16:46:20,END,Volume,1 mL/min,Dispensed: 28.9405 mL; Duration: 5m 47s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 16:46:30,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 17:16:31,END,Volume,1 mL/min,Dispensed: 30.0056 mL; Duration: 30m 0s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 17:18:30,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 17:18:43,END,Volume,1 mL/min,Dispensed: 1.0434 mL; Duration: 0m 12s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 20:57:59,START,Volume,1 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-07 20:58:37,END,Volume,1 mL/min,Dispensed: 0.0000 mL; Duration: 0m 37s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-08 21:14:24,START,Volume,0.02 mL/min,Notes: Determine dead volume (changed the tubing),,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-08 21:14:30,END,Volume,0.02 mL/min,Dispensed: 0.0000 mL; Duration: 0m 5s,,,,,1,Blank column 1,Blank column 2,tap water --> 1% NaCl
+2026-08-11 01:05:24,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8,0.5,1,D
+2026-08-11 01:05:37,END,Volume,5 mL/min,Dispensed: 1.0655 mL; Duration: 0m 13s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8,0.5,1,D
+2026-08-11 02:00:54,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8,0.5,1,D
+2026-08-11 02:02:07,END,Volume,5 mL/min,Dispensed: 6.0664 mL; Duration: 1m 12s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8,0.5,1,D
+2026-08-11 02:02:11,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8,0.5,1,D
+2026-08-11 02:02:55,END,Volume,5 mL/min,Dispensed: 3.6530 mL; Duration: 0m 43s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8,0.5,1,D

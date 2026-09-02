@@ -1,0 +1,6 @@
+Date/Time,Event,Mode,Flow Rate,Other Info,Column 1,Column 2,Current liquid,Tracer,Bed length,Flow rate,Run #,(De)Sorption
+2026-09-02 13:36:46,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
+2026-09-02 13:50:14,END,Volume,5 mL/min,Dispensed: 67.2874 mL; Duration: 13m 27s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
+2026-09-02 13:50:24,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
+2026-09-02 14:30:25,END,Volume,5 mL/min,Dispensed: 200.0443 mL; Duration: 40m 0s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
+2026-09-02 15:31:36,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
