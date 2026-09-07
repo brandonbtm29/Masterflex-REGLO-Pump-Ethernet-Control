@@ -50,13 +50,27 @@ Date/Time,Event,Mode,Flow Rate,Other Info,Column Name,Material,Flow rate,Bed len
 8/24/2026 0:57,END,Volume,2.5 mL/min,Dispensed: 1000.0128 mL; Duration: 399m 51s,Zero water,sPS (75-125um),Type II water,1wt% NaCl aq.,8cm,2.5,R01,D
 8/27/2026 22:17,START,Volume,0.20 mL/min,,HDPE (75-125um),iPP (75-125um),Type II water,1wt% NaCl aq.,8cm,0.2,R01,S
 8/27/2026 8:20,END,Volume,0.20 mL/min,Dispensed: 120.0151 mL; Duration: 0m 1s,HDPE (75-125um),iPP (75-125um),Type II water,1wt% NaCl aq.,8cm,0.2,R01,S
-2026-08-27 14:30:14,START,Volume,1 mL/min,,HDPE (75-125um),iPP (75-125um),Type II water,1wt% NaCl aq.,8cm,1,R01,S
-2026-08-28 10:33:00,END,Volume,1 mL/min,Dispensed: 1200.0028 mL; Duration: 1202m 46s,HDPE (75-125um),iPP (75-125um),Type II water,1wt% NaCl aq.,8cm,1,R01,S
-2026-08-28 18:27:57,START,Volume,1 mL/min,,HDPE (75-125um),iPP (75-125um),Type II water,1wt% NaCl aq.,8cm,1,R01,S
-2026-09-01 16:34:06,START,Volume,0.2 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.2,R01,S
-2026-09-02 00:57:14,END,Volume,0.2 mL/min,Dispensed: 100.0135 mL; Duration: 503m 8s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.2,R01,S
-2026-09-02 13:34:55,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
-2026-09-02 13:35:42,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
-2026-09-02 13:35:43,END,Volume,5 mL/min,Dispensed: 0.0187 mL; Duration: 0m 0s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
-2026-09-02 13:35:55,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
-2026-09-02 13:35:58,END,Volume,5 mL/min,Dispensed: 0.2023 mL; Duration: 0m 2s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
+8/27/2026 14:30,START,Volume,1 mL/min,,HDPE (75-125um),iPP (75-125um),Type II water,1wt% NaCl aq.,8cm,1,R01,S
+8/28/2026 10:33,END,Volume,1 mL/min,Dispensed: 1200.0028 mL; Duration: 1202m 46s,HDPE (75-125um),iPP (75-125um),Type II water,1wt% NaCl aq.,8cm,1,R01,S
+8/28/2026 18:27,START,Volume,1 mL/min,,HDPE (75-125um),iPP (75-125um),Type II water,1wt% NaCl aq.,8cm,1,R01,S
+9/1/2026 16:34,START,Volume,0.2 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.2,R01,S
+9/2/2026 0:57,END,Volume,0.2 mL/min,Dispensed: 100.0135 mL; Duration: 503m 8s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.2,R01,S
+9/2/2026 13:34,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
+9/2/2026 13:35,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
+9/2/2026 13:35,END,Volume,5 mL/min,Dispensed: 0.0187 mL; Duration: 0m 0s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
+9/2/2026 13:35,START,Volume,5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
+9/2/2026 13:35,END,Volume,5 mL/min,Dispensed: 0.2023 mL; Duration: 0m 2s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,5,R01,S
+9/2/2026 16:52,START,Volume,0.2 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.2,R01,S
+9/3/2026 2:56,END,Volume,0.2 mL/min,Dispensed: 120.0122 mL; Duration: 603m 45s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.2,R01,S
+9/3/2026 15:47,START,Volume,1 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,1,R01,D
+9/4/2026 11:47,END,Volume,1 mL/min,Dispensed: 1200.0133 mL; Duration: 1199m 41s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,1,R01,D
+9/4/2026 13:46,START,Volume,0.5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.5,R01,S
+9/4/2026 17:07,END,Volume,0.5 mL/min,Dispensed: 100.0121 mL; Duration: 200m 51s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.5,R01,S
+9/4/2026 20:39,START,Volume,2.5 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,2.5,R02,S
+9/5/2026 4:39,END,Volume,2.5 mL/min,Dispensed: 1200.0305 mL; Duration: 480m 5s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,2.5,R02,S
+9/5/2026 13:22,START,Volume,0.25 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.25,R02,S
+9/5/2026 20:01,END,Volume,0.25 mL/min,Dispensed: 100.0121 mL; Duration: 399m 3s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.25,R02,S
+9/5/2026 23:21,START,Volume,1 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,1,R02,D
+9/6/2026 20:44,END,Volume,1 mL/min,Dispensed: 1283.3883 mL; Duration: 1283m 3s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,1,R02,D
+2026-09-06 20:49:11,START,Volume,0.75 mL/min,,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.75,R01,S
+2026-09-06 23:29:17,END,Volume,0.75 mL/min,Dispensed: 120.0122 mL; Duration: 160m 6s,Calgon Carbon F400,Glass beads 100um,Type II water,1wt% NaCl aq.,8cm,0.75,R01,S

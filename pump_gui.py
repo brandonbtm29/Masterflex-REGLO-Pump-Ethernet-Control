@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSizePolicy, QScrollArea, QListWidget, QListWidgetItem, QAbstractItemView,
                              QFormLayout, QInputDialog, QToolButton)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QSize
-from PyQt6.QtGui import QFont, QColor, QIcon
+from PyQt6.QtGui import QFont, QColor, QIcon, QTextCursor
 
 import qdarktheme
 
@@ -406,6 +406,12 @@ class MasterflexPumpGUI(QMainWindow):
         self.off_time_entry = QLineEdit("0.0")
         self.volume_entry = QLineEdit("0.0")
         self.batch_entry = QLineEdit("1")
+        
+        self.lbl_est_time = QLabel("Est. Time: --")
+        self.lbl_est_time.setStyleSheet("color: grey; font-weight: bold;")
+        self.volume_entry.textChanged.connect(self.update_est_time)
+        self.flow_entry.textChanged.connect(self.update_est_time)
+        self.unit_menu.currentTextChanged.connect(self.update_est_time)
 
         self.apply_params_btn = QPushButton("Apply Parameters")
         self.apply_params_btn.setStyleSheet(f"background-color: {MASTERFLEX_ORANGE}; color: white; font-weight: bold;")
@@ -660,7 +666,9 @@ class MasterflexPumpGUI(QMainWindow):
             self.params_layout.addWidget(self.off_time_entry, 5, 1)
             self.params_layout.addWidget(QLabel("Batch Total:"), 6, 0)
             self.params_layout.addWidget(self.batch_entry, 7, 0)
+            self.params_layout.addWidget(self.lbl_est_time, 7, 1)
             self.params_layout.addWidget(self.apply_params_btn, 8, 0, 1, 2)
+            self.update_est_time()
         else: # Continuous
             self.params_layout.addWidget(self.apply_params_btn, 4, 0, 1, 2)
             
@@ -826,10 +834,18 @@ class MasterflexPumpGUI(QMainWindow):
 
 
     def log_msg_ui(self, msg):
-        self.console_textbox.append(f"[INFO] {msg}")
+        cursor = self.console_textbox.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self.console_textbox.setTextCursor(cursor)
+        self.console_textbox.insertHtml(f"[INFO] {msg}<br>")
+        self.console_textbox.moveCursor(QTextCursor.MoveOperation.Start)
 
     def log_error_ui(self, msg):
-        self.console_textbox.append(f"<span style='color:red;'>[ERROR] {msg}</span>")
+        cursor = self.console_textbox.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self.console_textbox.setTextCursor(cursor)
+        self.console_textbox.insertHtml(f"<span style='color:red;'>[ERROR] {msg}</span><br>")
+        self.console_textbox.moveCursor(QTextCursor.MoveOperation.Start)
 
     def log_msg(self, msg):
         self.signals.log_msg_signal.emit(msg)
@@ -1024,8 +1040,8 @@ class MasterflexPumpGUI(QMainWindow):
         else:
             item.setForeground(QColor("white"))
             
-        self.run_log_list.addItem(item)
-        self.run_log_list.scrollToBottom()
+        self.run_log_list.insertItem(0, item)
+        self.run_log_list.scrollToTop()
         
         if actual_row:
             try:
@@ -1108,6 +1124,22 @@ class MasterflexPumpGUI(QMainWindow):
             self.log_error(f"Failed to rewrite backup CSV: {e}")
 
     def load_run_logs(self):
+        from datetime import datetime
+        def normalize_row(row):
+            if not row or len(row) < 4: return tuple(row)
+            ts = row[0]
+            dt = None
+            for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%m/%d/%Y %H:%M', '%m/%d/%Y %H:%M:%S'):
+                try:
+                    dt = datetime.strptime(ts, fmt)
+                    break
+                except:
+                    pass
+            if dt:
+                norm_ts = dt.strftime('%Y-%m-%d %H:%M')
+                return (norm_ts, row[1], row[2], row[3])
+            return tuple(row[:4])
+
         saved_rows = set()
         if os.path.exists("run_log.csv"):
             try:
@@ -1115,7 +1147,7 @@ class MasterflexPumpGUI(QMainWindow):
                     reader = csv.reader(f)
                     next(reader, None)
                     for row in reader:
-                        if row: saved_rows.add(tuple(row))
+                        if row: saved_rows.add(normalize_row(row))
             except: pass
             
         if os.path.exists("run_log_backup.csv"):
@@ -1135,14 +1167,14 @@ class MasterflexPumpGUI(QMainWindow):
                         item = QListWidgetItem(ui_msg)
                         item.setData(Qt.ItemDataRole.UserRole, row)
                         
-                        if tuple(row) not in saved_rows:
+                        if normalize_row(row) not in saved_rows:
                             item.setText(ui_msg + " (Not Saved to CSV)")
                             item.setForeground(QColor("red"))
                         else:
                             item.setForeground(QColor("white"))
                             
-                        self.run_log_list.addItem(item)
-                self.run_log_list.scrollToBottom()
+                        self.run_log_list.insertItem(0, item)
+                self.run_log_list.scrollToTop()
             except Exception as e:
                 self.log_error(f"Failed to load backup logs: {e}")
 
@@ -1217,6 +1249,40 @@ class MasterflexPumpGUI(QMainWindow):
         self.write_output_data()
         self.log_msg(f"Unit updated to: {choice}")
         self.update_parameter_visibility()
+        self.update_est_time()
+
+    def update_est_time(self, *args):
+        try:
+            vol = float(self.volume_entry.text())
+            flow = float(self.flow_entry.text())
+            unit = self.unit_menu.currentText()
+            
+            if flow <= 0:
+                self.lbl_est_time.setText("Est. Time: --")
+                return
+                
+            if "/S" in unit or "/sec" in unit:
+                time_in_sec = vol / flow
+            elif "/min" in unit:
+                time_in_sec = (vol / flow) * 60
+            elif "/hr" in unit:
+                time_in_sec = (vol / flow) * 3600
+            elif "/day" in unit:
+                time_in_sec = (vol / flow) * 86400
+            elif unit == "RPM":
+                time_in_sec = (vol / flow) * 60
+            else:
+                self.lbl_est_time.setText("Est. Time: --")
+                return
+                
+            if time_in_sec < 60:
+                self.lbl_est_time.setText(f"Est. Time: {time_in_sec:.1f} sec")
+            elif time_in_sec < 3600:
+                self.lbl_est_time.setText(f"Est. Time: {time_in_sec/60:.2f} min")
+            else:
+                self.lbl_est_time.setText(f"Est. Time: {time_in_sec/3600:.2f} hr")
+        except:
+            self.lbl_est_time.setText("Est. Time: --")
 
     def cmd_update_mode(self):
         mode = self.mode_group.checkedId()
