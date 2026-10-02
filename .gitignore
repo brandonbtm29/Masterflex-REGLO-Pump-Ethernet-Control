@@ -10,3 +10,4 @@ dist/
 *.spec
 __pycache__/
 *.pyc
+run_log*.csv

@@ -553,8 +553,12 @@ class MasterflexPumpGUI(QMainWindow):
         self.open_log_btn.clicked.connect(self.cmd_open_log_folder)
         notes_controls.addWidget(self.open_log_btn)
         
+        self.open_log_file_btn = QPushButton("Open Log File")
+        self.open_log_file_btn.clicked.connect(self.cmd_open_log_file)
+        notes_controls.addWidget(self.open_log_file_btn)
+        
         self.auto_log_cb = QCheckBox("Auto-Log Runs")
-        self.auto_log_cb.setChecked(True)
+        self.auto_log_cb.setChecked(False)
         notes_controls.addWidget(self.auto_log_cb)
         notes_controls.addStretch()
         
@@ -1027,6 +1031,23 @@ class MasterflexPumpGUI(QMainWindow):
                 subprocess.Popen(["xdg-open", os.getcwd()])
         except Exception as e:
             self.log_error(f"Failed to open folder: {e}")
+
+    def cmd_open_log_file(self):
+        log_file = os.path.join(os.getcwd(), "run_log.csv")
+        if not os.path.exists(log_file):
+            self.log_msg_ui("No run_log.csv found yet.")
+            return
+        try:
+            if sys.platform == "win32":
+                os.startfile(log_file)
+            elif sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", log_file])
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", log_file])
+        except Exception as e:
+            self.log_error(f"Failed to open log file: {e}")
 
     def write_run_log(self, ui_msg, csv_row=None, hidden_csv_row=None):
         item = QListWidgetItem(ui_msg)
