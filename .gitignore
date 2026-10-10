@@ -16,3 +16,7 @@ run_log*.csv
 .venv/
 CLAUDE.local.md
 .claude/settings.local.json
+
+# Local app state and data (live in SyncThing data folder)
+pump_config.json
+*.bak
