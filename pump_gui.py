@@ -2,8 +2,8 @@ import sys
 import os
 
 # --- Code vs data -----------------------------------------------------------
-# Code lives in GitHub Projects/UAkron/<repo>; data (exports, backups, logs and
-# this machine's config) lives in SyncThing. The app runs with the data folder as
+# Code lives in GitHub Projects/UAkron/<repo>; data (exports, backups, logs) lives
+# in SyncThing. The app runs with the data folder as
 # its working directory, so relative paths like "Data/" land there.
 # Override with UAKRON_APP_DATA_DIR (this app) or UAKRON_DATA_DIR (data root).
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -15,6 +15,9 @@ DATA_DIR = os.environ.get("UAKRON_APP_DATA_DIR") or os.path.join(
 )
 os.makedirs(DATA_DIR, exist_ok=True)
 os.chdir(DATA_DIR)
+# Per-machine settings (config, secrets, ROIs) live next to the app, gitignored.
+# They never go into SyncThing or GitHub. Frozen builds keep them next to the executable.
+CONFIG_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else script_dir
 
 import threading
 import time
@@ -252,7 +255,7 @@ class MasterflexPumpGUI(QMainWindow):
         self.input_data = bytearray(56)
 
         # Settings
-        self.config_file = "pump_config.json"
+        self.config_file = os.path.join(CONFIG_DIR, "pump_config.json")
         self.config_data = {}
         self.hardware_max_rpm = 160.0
         self.load_settings()
