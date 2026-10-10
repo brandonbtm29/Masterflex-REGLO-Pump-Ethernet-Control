@@ -20,3 +20,5 @@ CLAUDE.local.md
 # Local app state and data (live in SyncThing data folder)
 pump_config.json
 *.bak
+# Per-machine pointer to the settings folder
+settings_location.json

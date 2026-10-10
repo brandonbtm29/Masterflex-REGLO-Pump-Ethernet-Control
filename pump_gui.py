@@ -15,9 +15,15 @@ DATA_DIR = os.environ.get("UAKRON_APP_DATA_DIR") or os.path.join(
 )
 os.makedirs(DATA_DIR, exist_ok=True)
 os.chdir(DATA_DIR)
-# Per-machine settings (config, secrets, ROIs) live next to the app, gitignored.
-# They never go into SyncThing or GitHub. Frozen builds keep them next to the executable.
-CONFIG_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else script_dir
+# Settings (config, secrets, ROIs) live in the app folder by default, gitignored.
+# The "Settings Folder" option (settings_location.py) can point them at a synced
+# folder instead, e.g. "Settings" inside the data folder.
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+import settings_location
+APP_DIR = settings_location.app_folder(script_dir)
+CONFIG_DIR = settings_location.resolve(APP_DIR, DATA_DIR)
+SETTINGS_FILES = ['pump_config.json']
 
 import threading
 import time
@@ -135,9 +141,12 @@ class SettingsDialog(QDialog):
         self.use_icons_checkbox.toggled.connect(self.on_toggle_icons)
         hw_layout.addWidget(self.use_icons_checkbox, 3, 0, 1, 2)
         
+        hw_layout.addWidget(settings_location.settings_folder_box(
+            APP_DIR, DATA_DIR, SETTINGS_FILES, save_cb=parent.save_all_settings,
+            restart_cb=parent.cmd_restart_app), 4, 0, 1, 2)
         self.restart_btn = QPushButton("Restart Application")
         self.restart_btn.clicked.connect(parent.cmd_restart_app)
-        hw_layout.addWidget(self.restart_btn, 4, 0, 1, 2)
+        hw_layout.addWidget(self.restart_btn, 5, 0, 1, 2)
         
         self.tabview.addTab(hw_tab, "Hardware")
 
