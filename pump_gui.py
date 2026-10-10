@@ -1,10 +1,20 @@
 import sys
 import os
 
-# Ensure the working directory is the location of the script
+# --- Code vs data -----------------------------------------------------------
+# Code lives in GitHub Projects/UAkron/<repo>; data (exports, backups, logs and
+# this machine's config) lives in SyncThing. The app runs with the data folder as
+# its working directory, so relative paths like "Data/" land there.
+# Override with UAKRON_APP_DATA_DIR (this app) or UAKRON_DATA_DIR (data root).
 script_dir = os.path.dirname(os.path.abspath(__file__))
-if os.getcwd() != script_dir:
-    os.chdir(script_dir)
+sys.argv[0] = os.path.abspath(sys.argv[0])  # keeps "Restart" working after chdir
+DATA_DIR = os.environ.get("UAKRON_APP_DATA_DIR") or os.path.join(
+    os.environ.get("UAKRON_DATA_DIR")
+    or os.path.join(os.path.expanduser("~"), "SyncThing", "UAkron Playground"),
+    "MasterFlex Pump",
+)
+os.makedirs(DATA_DIR, exist_ok=True)
+os.chdir(DATA_DIR)
 
 import threading
 import time
@@ -1467,7 +1477,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
     
-    app.setWindowIcon(QIcon("Peristaltic pump icon multichannel.ico"))
+    app.setWindowIcon(QIcon(os.path.join(script_dir, "Peristaltic pump icon multichannel.ico")))
     
     window = MasterflexPumpGUI()
     window.showMaximized()
