@@ -11,3 +11,8 @@ dist/
 __pycache__/
 *.pyc
 run_log*.csv
+
+# Local environment / Claude Code personal files
+.venv/
+CLAUDE.local.md
+.claude/settings.local.json
