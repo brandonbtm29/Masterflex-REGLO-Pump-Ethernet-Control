@@ -22,3 +22,7 @@ pump_config.json
 *.bak
 # Per-machine pointer to the settings folder
 settings_location.json
+# Vendor manuals and data live in SyncThing (MasterFlex Pump/Reference/)
+Manuals/
+Masterflex on GitHub/
+*.xlsx
