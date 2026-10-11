@@ -5,7 +5,7 @@ PyQt6 GUI that controls a Masterflex REGLO digital pump over EtherNet/IP using `
 ## Run / build
 - `pip install -r requirements.txt` (PyQt6, pyqtdarktheme, pycomm3, pyinstaller)
 - Run: `python pump_gui.py`. Build: `python build_app.py` → `dist/`
-- Settings live in `pump_config.json`. Run logs are `run_log*.csv` (gitignored). The RTD dashboard reads these logs.
+- Settings live in `pump_config.json`. Run logs are written to `Data/run_log.csv` and `Data/run_log_backup.csv` in the pump's SyncThing data folder (`RUN_LOG`, `RUN_LOG_BACKUP`). The RTD run summary lists the pump log file names.
 
 ## Read README.md "Critical Project Learnings" before changing comms code
 - `PumpDriver` subclasses `pycomm3.LogixDriver` and overrides `_initialize_driver` with `pass`. The pump crashes if the normal identity/tag-list handshake runs.

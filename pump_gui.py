@@ -24,6 +24,10 @@ import settings_location
 APP_DIR = settings_location.app_folder(script_dir)
 CONFIG_DIR = settings_location.resolve(APP_DIR, DATA_DIR)
 SETTINGS_FILES = ['pump_config.json']
+# Run logs are data: kept in Data/ inside the pump's data folder.
+os.makedirs(os.path.join(DATA_DIR, "Data"), exist_ok=True)
+RUN_LOG = os.path.join(DATA_DIR, "Data", "run_log.csv")
+RUN_LOG_BACKUP = os.path.join(DATA_DIR, "Data", "run_log_backup.csv")
 
 import threading
 import time
@@ -208,15 +212,15 @@ class SettingsDialog(QDialog):
             self.parent().log_error("Invalid Max RPM value.")
 
     def on_open_log(self):
-        if os.path.exists("run_log.csv"):
+        if os.path.exists(RUN_LOG):
             if sys.platform == "win32":
-                os.startfile("run_log.csv")
+                os.startfile(RUN_LOG)
             elif sys.platform == "darwin":
                 import subprocess
-                subprocess.Popen(["open", "run_log.csv"])
+                subprocess.Popen(["open", RUN_LOG])
             else:
                 import subprocess
-                subprocess.Popen(["xdg-open", "run_log.csv"])
+                subprocess.Popen(["xdg-open", RUN_LOG])
         else:
             self.parent().log_error("run_log.csv does not exist yet.")
 
@@ -1055,7 +1059,7 @@ class MasterflexPumpGUI(QMainWindow):
             self.log_error(f"Failed to open folder: {e}")
 
     def cmd_open_log_file(self):
-        log_file = os.path.join(os.getcwd(), "run_log.csv")
+        log_file = RUN_LOG
         if not os.path.exists(log_file):
             self.log_msg_ui("No run_log.csv found yet.")
             return
@@ -1088,8 +1092,8 @@ class MasterflexPumpGUI(QMainWindow):
         
         if actual_row:
             try:
-                file_exists = os.path.exists("run_log_backup.csv")
-                with open("run_log_backup.csv", "a", newline="", encoding="utf-8") as f:
+                file_exists = os.path.exists(RUN_LOG_BACKUP)
+                with open(RUN_LOG_BACKUP, "a", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     if not file_exists:
                         token_keys = self.get_token_order() if hasattr(self, 'get_token_order') else []
@@ -1100,8 +1104,8 @@ class MasterflexPumpGUI(QMainWindow):
                 
         if csv_row:
             try:
-                file_exists = os.path.exists("run_log.csv")
-                with open("run_log.csv", "a", newline="", encoding="utf-8") as f:
+                file_exists = os.path.exists(RUN_LOG)
+                with open(RUN_LOG, "a", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     if not file_exists:
                         token_keys = self.get_token_order() if hasattr(self, 'get_token_order') else []
@@ -1118,8 +1122,8 @@ class MasterflexPumpGUI(QMainWindow):
             
         saved_count = 0
         try:
-            file_exists = os.path.exists("run_log.csv")
-            with open("run_log.csv", "a", newline="", encoding="utf-8") as f:
+            file_exists = os.path.exists(RUN_LOG)
+            with open(RUN_LOG, "a", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 if not file_exists:
                     token_keys = self.get_token_order() if hasattr(self, 'get_token_order') else []
@@ -1154,7 +1158,7 @@ class MasterflexPumpGUI(QMainWindow):
 
     def rewrite_backup_log(self):
         try:
-            with open("run_log_backup.csv", "w", newline="", encoding="utf-8") as f:
+            with open(RUN_LOG_BACKUP, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 token_keys = self.get_token_order() if hasattr(self, 'get_token_order') else []
                 writer.writerow(["Date/Time", "Event", "Mode", "Flow Rate", "Other Info"] + token_keys)
@@ -1184,18 +1188,18 @@ class MasterflexPumpGUI(QMainWindow):
             return tuple(row[:4])
 
         saved_rows = set()
-        if os.path.exists("run_log.csv"):
+        if os.path.exists(RUN_LOG):
             try:
-                with open("run_log.csv", "r", encoding="utf-8") as f:
+                with open(RUN_LOG, "r", encoding="utf-8") as f:
                     reader = csv.reader(f)
                     next(reader, None)
                     for row in reader:
                         if row: saved_rows.add(normalize_row(row))
             except: pass
             
-        if os.path.exists("run_log_backup.csv"):
+        if os.path.exists(RUN_LOG_BACKUP):
             try:
-                with open("run_log_backup.csv", "r", encoding="utf-8") as f:
+                with open(RUN_LOG_BACKUP, "r", encoding="utf-8") as f:
                     reader = csv.reader(f)
                     next(reader, None)
                     for row in reader:
