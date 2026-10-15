@@ -152,3 +152,11 @@ class DispenseController:
             return True
 
         return None
+
+
+def format_seconds(seconds):
+    """75 -> '1:15', 3725 -> '1:02:05'."""
+    seconds = max(0, int(round(seconds)))
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"

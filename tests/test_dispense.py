@@ -173,3 +173,10 @@ def test_window_drops_the_program_when_stopped_on_the_touchscreen(connected, mon
     step(window, pump, 200.0, monkeypatch, status=0b10000001)
     assert not window.output_data[0] & 1  # never restarted
     assert "stopped outside the app" in window.console_textbox.toPlainText()
+
+
+def test_format_seconds():
+    assert d.format_seconds(0) == "0:00"
+    assert d.format_seconds(75) == "1:15"
+    assert d.format_seconds(3725) == "1:02:05"
+    assert d.format_seconds(-3) == "0:00"

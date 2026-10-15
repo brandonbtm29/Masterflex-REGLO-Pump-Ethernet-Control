@@ -165,3 +165,16 @@ def unit_seconds(name):
 def volume_unit(name):
     """'mL/min' -> 'mL'; RPM and % are returned unchanged."""
     return name.split("/", 1)[0] if "/" in name else name
+
+
+def estimate_rpm(flow, unit, max_flow, max_rpm):
+    """Rough drive speed from the current flow.
+
+    The pump doesn't report its speed, so this scales the flow by the pump's own maximum flow
+    for the fitted tube (input bytes 40-43), which it reaches at ``max_rpm``.
+    """
+    if unit == "RPM":
+        return flow
+    if unit == "%":
+        return flow / 100 * max_rpm
+    return flow / max_flow * max_rpm if max_flow > 0 else 0.0

@@ -43,3 +43,10 @@ def test_units(unit, code, seconds, vol):
     assert p.unit_code(unit) == code
     assert p.unit_seconds(unit) == seconds
     assert p.volume_unit(unit) == vol
+
+
+def test_estimate_rpm():
+    assert p.estimate_rpm(5.0, "mL/min", 10.0, 160) == 80
+    assert p.estimate_rpm(42, "RPM", 10.0, 160) == 42
+    assert p.estimate_rpm(50, "%", 10.0, 160) == 80
+    assert p.estimate_rpm(5.0, "mL/min", 0, 160) == 0

@@ -106,3 +106,17 @@ def test_changing_unit_forgets_the_old_limits(connected):
     assert window._flow_limits
     window.unit_menu.setCurrentText("uL/min")
     assert window._flow_limits is None
+
+
+def test_dashboard_rpm_run_time_and_head_open(connected, monkeypatch):
+    window, pump = connected
+    pump.input_data = fake_input(status=0b10010011, flow=7.345, hi=14.69)
+    window._poll_once()
+    monkeypatch.setattr("pump_gui.time.time", lambda: 1000.0)
+    window.update_dashboard()  # run starts at t=1000
+    assert window.lbl_mon_rpm.text() == "RPM (est.)\n80.0"  # half the max flow -> half of 160 RPM
+    assert window.lbl_mon_status.text() == "Status OK: YES (head open)"
+    monkeypatch.setattr("pump_gui.time.time", lambda: 1075.0)
+    window.update_dashboard()
+    assert window.lbl_mon_calctime.text() == "Run Time\n1:15"
+    assert "#4da3ff" in window.remote_indicator.styleSheet()  # readable on the dark theme

@@ -318,6 +318,8 @@ class MasterflexPumpGUI(QMainWindow):
         self.pump_running = False
         self.run_log_active = False
         self._last_cum_vol = 0.0
+        self._run_start_time = self._run_start_vol = 0.0
+        self._last_run_seconds = 0.0
         self._flow_limits = None  # (min, max) the pump reports for the current unit
 
         # Data arrays
@@ -544,7 +546,7 @@ class MasterflexPumpGUI(QMainWindow):
         vol_layout.addWidget(self.lbl_mon_vol)
         vol_layout.addWidget(self.reset_vol_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.lbl_mon_calctime = QLabel("Calc. Time\n0.00 min")
+        self.lbl_mon_calctime = QLabel("Run Time\n0:00")
         self.lbl_mon_calctime.setFont(font_mon)
         self.lbl_mon_calctime.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
         self.lbl_mon_calctime.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -562,7 +564,7 @@ class MasterflexPumpGUI(QMainWindow):
         batch_layout.addWidget(self.lbl_mon_batch)
         batch_layout.addWidget(self.reset_batch_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.lbl_mon_rpm = QLabel("RPM\n0.0")
+        self.lbl_mon_rpm = QLabel("RPM (est.)\n0.0")
         self.lbl_mon_rpm.setFont(font_mon)
         self.lbl_mon_rpm.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
         self.lbl_mon_rpm.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1463,8 +1465,9 @@ class MasterflexPumpGUI(QMainWindow):
         self.write_run_log(ui_msg, csv_row, hidden_csv_row)
 
     def log_finished_run(self, final_vol, note=""):
-        vol_dispensed = final_vol - getattr(self, "_run_start_vol", final_vol)
-        duration_sec = time.time() - getattr(self, "_run_start_time", time.time())
+        vol_dispensed = final_vol - self._run_start_vol
+        duration_sec = time.time() - (self._run_start_time or time.time())
+        self._last_run_seconds = duration_sec
         mins, secs = divmod(int(duration_sec), 60)
 
         mode = self.mode_group.checkedId()
@@ -1691,12 +1694,10 @@ class MasterflexPumpGUI(QMainWindow):
         except:
             pass
 
-        if cur_flow > 0:
-            calc_time = cum_vol / cur_flow
-        else:
-            calc_time = 0.0
-
-        self.lbl_mon_status.setText("Status OK: YES" if status_ok else "Status OK: NO")
+        status_text = "Status OK: YES" if status_ok else "Status OK: NO"
+        if st.head_open:
+            status_text += " (head open)"
+        self.lbl_mon_status.setText(status_text)
         self.lbl_mon_status.setStyleSheet(
             "color: green; font-weight: bold;" if status_ok else "color: red; font-weight: bold;"
         )
@@ -1736,42 +1737,43 @@ class MasterflexPumpGUI(QMainWindow):
 
         self.remote_indicator.setText("Local Mode" if local_mode else "Remote Mode")
         self.remote_indicator.setStyleSheet(
-            "color: green; font-weight: bold;" if local_mode else "color: blue; font-weight: bold;"
+            "color: green; font-weight: bold;" if local_mode else "color: #4da3ff; font-weight: bold;"
         )
         self.remote_btn.setText("Enable Remote" if local_mode else "Disable Remote")
 
         mm_size = TUBE_CODES_MM.get(tube_code, 0)
         if mm_size:
-            self.tube_indicator.setText(f"Tube Code: {tube_code} ({mm_size} mm ID)")
             self.tube_indicator.setText(f"Tube Code {tube_code} ({mm_size} mm ID)")
         else:
             self.tube_indicator.setText(f"Tube Code {tube_code}")
 
         flow_unit_str = self.unit_menu.currentText()
-        vol_unit_str = flow_unit_str.split("/")[0] if "/" in flow_unit_str else flow_unit_str
+        vol_unit_str = proto.volume_unit(flow_unit_str)
         self.lbl_mon_flow.setText(f"Flow Rate\n{cur_flow:.4f} {flow_unit_str}")
         self.lbl_mon_vol.setText(f"Cum. Volume\n{cum_vol:.4f} {vol_unit_str}")
-        self.lbl_mon_calctime.setText(f"Calc. Time\n{calc_time:.2f} min")
+        self.lbl_mon_calctime.setText(self._run_time_text(cum_vol, cur_flow, flow_unit_str))
 
         if self.dispense.state != dispense.IDLE:
             self.lbl_mon_batch.setText(f"Batch\n{self.dispense.progress()}")
-        elif batch_current == 0 and getattr(self, "last_batch_current", 0) == 1:
-            pass
         else:
             self.lbl_mon_batch.setText(f"Batch\n{batch_current}")
 
-        max_rpm = self.hardware_max_rpm
-        try:
-            max_flow = float(self.config_data.get("max_flow", max_rpm))
-        except:
-            max_flow = max_rpm
+        est_rpm = proto.estimate_rpm(cur_flow, flow_unit_str, max_flow, self.hardware_max_rpm)
+        self.lbl_mon_rpm.setText(f"RPM (est.)\n{est_rpm:.1f}")
 
-        if max_flow > 0:
-            est_rpm = (cur_flow / max_flow) * max_rpm
+    def _run_time_text(self, cum_vol, cur_flow, unit):
+        """'Run Time' tile: how long the current run has gone (or the last one went), and how
+        long is left of the current Time/Volume dispense when that's known."""
+        if self.run_log_active:
+            text = "Run Time\n" + dispense.format_seconds(time.time() - self._run_start_time)
         else:
-            est_rpm = 0.0
-
-        self.lbl_mon_rpm.setText(f"RPM\n{est_rpm:.1f}")
+            text = "Last Run\n" + dispense.format_seconds(self._last_run_seconds)
+        per = proto.unit_seconds(unit)
+        with self.ctrl_lock:
+            left = self.dispense.remaining(time.monotonic(), cum_vol, cur_flow / per if per else None)
+        if left is not None:
+            text += f" ({dispense.format_seconds(left)} left)"
+        return text
 
 
 if __name__ == "__main__":
