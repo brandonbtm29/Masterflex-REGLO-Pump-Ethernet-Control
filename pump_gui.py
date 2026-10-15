@@ -134,7 +134,8 @@ class CollapsibleBox(QWidget):
         main_layout.addWidget(self.content_area)
 
     def on_toggle(self, checked):
-        self.toggle_button.setText(f"▼ {self.title_text}" if checked else f"▶ {self.title_text}")
+        title = self.title_text.replace("&", "&&")  # a single & would become a keyboard shortcut
+        self.toggle_button.setText(f"▼ {title}" if checked else f"▶ {title}")
         self.content_area.setVisible(checked)
 
 
