@@ -52,7 +52,8 @@ addopts = "-q"
 [tool.ruff]
 line-length = 110
 target-version = "py311"
-extend-exclude = ["build", "dist"]
+# settings_location.py is shared byte-for-byte with the other UAkron apps; leave it as is.
+extend-exclude = ["build", "dist", "settings_location.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S"]
