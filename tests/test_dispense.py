@@ -1,5 +1,7 @@
 """Software Time and Volume programs (dispense.py), and how the window uses them."""
 
+import os
+
 import pytest
 from conftest import fake_input
 
@@ -180,3 +182,41 @@ def test_format_seconds():
     assert d.format_seconds(75) == "1:15"
     assert d.format_seconds(3725) == "1:02:05"
     assert d.format_seconds(-3) == "0:00"
+
+
+def test_end_to_end_volume_program_with_real_threads(window, qapp, monkeypatch, pump_gui):
+    """Connect, run 2 x 0.05 mL with a 0.3 s pause on a simulated pump, then check the log."""
+    import time
+
+    from conftest import SimPump
+
+    import runlog
+
+    pump = SimPump()
+    monkeypatch.setattr("pump_gui.PumpDriver", lambda target: pump)
+    if os.path.exists(pump_gui.RUN_LOG):
+        os.remove(pump_gui.RUN_LOG)
+
+    def spin(seconds, until=lambda: False):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and not until():
+            qapp.processEvents()
+            time.sleep(0.02)
+
+    window.auto_log_cb.setChecked(True)
+    window.ip_entry.setText("192.0.2.10")
+    window.connect()
+    spin(2, until=lambda: window.connected)
+    set_program(window, window.mode_radio2, flow=6, volume=0.05, off_time=0.3, batch=2)
+    try:
+        window.cmd_start()
+        spin(8, until=lambda: window.dispense.state == d.DONE and not window.pump_running)
+        assert window.dispense.state == d.DONE and window.dispense.progress() == "2/2"
+        assert not pump.run
+        spin(0.3)
+        events = [r["Event"] for r in runlog.read(pump_gui.RUN_LOG)[1]]
+        assert events == ["START", "END", "START", "END"]
+        assert 0.1 <= pump.volume < 0.13  # two 0.05 mL dispenses, a little overshoot allowed
+    finally:
+        window.disconnect()
+        time.sleep(0.2)

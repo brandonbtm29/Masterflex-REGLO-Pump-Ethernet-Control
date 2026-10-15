@@ -96,3 +96,34 @@ def connected(window):
     window.link_ok = True
     window.status_label.setText("Status: Connected (IP)")
     return window, pump
+
+
+class SimPump(FakePump):
+    """A pump that actually 'runs': it pumps 0.1 mL/s (6 mL/min) while the run bit is set."""
+
+    def __init__(self):
+        super().__init__()
+        import threading
+        import time
+
+        self._time = time.monotonic
+        self._lock = threading.Lock()
+        self.run = False
+        self.volume = 0.0
+        self._t = self._time()
+        self.open = lambda: None
+
+    def generic_message(self, service, class_code, instance, attribute=b"", request_data=b"", **kw):
+        with self._lock:
+            now = self._time()
+            if self.run:
+                self.volume += 0.1 * (now - self._t)
+            self._t = now
+            if service == b"\x10":
+                self.run = bool(request_data[0] & 1)
+            else:
+                status = 0b10000011 if self.run else 0b10000001
+                self.input_data = fake_input(
+                    status=status, cum_vol=self.volume, flow=6.0 if self.run else 0.0
+                )
+        return super().generic_message(service, class_code, instance, attribute, request_data, **kw)
