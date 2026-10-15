@@ -27,8 +27,9 @@ any REGLO with Advanced Connectivity (models 78018-10, 78018-12, 78018-40 and si
 - **Connect by IP or search the network**: type the pump's address, or let the app find it.
 - **Live dashboard**: flow rate, cumulative volume, estimated RPM, batch count, run state,
   remote/local mode and tube size, updated 10 times a second. Drag the tiles into the order you like.
-- **Continuous and Volume modes**: Volume mode stops the pump once the target volume has been
-  pumped, and shows an estimated run time before you start.
+- **Continuous, Time and Volume modes**: Time and Volume modes dispense for a set time or
+  volume, pause for an interval, and repeat a set number of times (or until you stop them).
+  Volume mode shows an estimated run time before you start.
 - **Flow units**: all 16 units the drive supports (mL/min, µL/hr, L/day, RPM, % and more), with
   the slider limited to the pump's calibrated minimum and maximum.
 - **Direction, remote mode, and reset** of cumulative volume and batch count from the app.
@@ -81,7 +82,7 @@ In the app: enter the pump's IP address (or click the search button), click **Co
 | Enable / Disable Remote | Switches the pump between touchscreen (local) and computer (remote) control |
 | Start / Run, Stop / Pause | Starts or pauses the pump. Start also applies the current parameters |
 | Direction (CCW) | Counter-clockwise when ticked. Changing it stops the pump first |
-| Operation Mode | Continuous, Time or Volume (see [Limitations](#limitations)) |
+| Operation Mode | Continuous runs until stopped. Time runs for On Time seconds, Volume until the Dispense Volume is pumped; both then pause for Off/Interval seconds and repeat Batch Total times (0 = until stopped) |
 | Apply Parameters | Sends flow rate, volume, times and batch count to the pump |
 | 🔄 under the tiles | Resets cumulative volume or batch count |
 | Save Selected / Delete Selected | Writes chosen runs from the history to the CSV log, or removes them |
@@ -174,15 +175,13 @@ Three things about the REGLO make this different from talking to a PLC:
 
 ## Limitations
 
-- **Volume mode is done by the app, not the pump.** The drive didn't reliably accept target
-  volumes over EtherNet/IP, so the app keeps the drive in continuous mode and pauses it once the
-  target volume is reached. The stop is checked every 100 ms, so a run can overshoot by up to
-  about 0.1 s of flow, and the app must stay open and connected for the run to stop.
-- **Time mode probably runs continuously.** For the same reason the drive is kept in continuous
-  mode, and the app has no timer for Time mode, so on/off times and batch counts are sent but
-  likely not used. Check on your pump before relying on it.
-- **Connection errors are quiet.** If the pump stops answering, the background thread keeps
-  retrying without logging it. If the pump stops unexpectedly, check the network first.
+- **Time and Volume modes are run by the app, not the pump.** The drive didn't reliably accept
+  dispense settings over EtherNet/IP, so the app keeps the drive in continuous mode and starts
+  and pauses it itself ([`dispense.py`](dispense.py)). It checks every 100 ms, so each dispense
+  can run up to about 0.1 s longer than set, and the app must stay open and connected for the
+  program to stop. In remote mode the pump also stops on its own if the app goes quiet.
+- **If the pump stops answering**, the status bar shows "No response from pump", the event log
+  says why, and the app keeps retrying. It logs again when the pump is back.
 - **USB is for firmware only.** The REGLO's USB port can't control the pump, and the older
   `masterflex-serial` library for L/S and I/P pumps doesn't work with this series.
 - **No security on the pump.** Anyone on the same network can control it. Keep it on a lab

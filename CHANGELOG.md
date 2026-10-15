@@ -7,6 +7,19 @@ the last, and changes that break existing settings or workflows bump the first.
 
 ## [Unreleased]
 
+### Fixed
+- **Time mode works.** It used to run until stopped; now it runs for On Time seconds.
+- **Off/Interval and Batch Total are honoured** in Time and Volume modes: dispense, pause,
+  repeat (Batch Total 0 = until stopped). The Batch tile shows progress, e.g. "2/5".
+- **Communication problems are reported.** If the pump stops answering or rejects a command,
+  the event log says so once, the status bar shows "No response from pump", and the app logs
+  again when the pump is back. The dashboard no longer acts on stale data in the meantime.
+
+### Changed
+- Time and Volume modes refuse to start with an On Time or volume of 0 (Volume mode with 0
+  used to run until stopped).
+- Removed an unused duplicate of the restart function (no behaviour change).
+
 ## [1.0.0] - 2026-10-14
 
 First tracked release. The app has been in lab use since June 2026; this release adds
@@ -42,8 +55,5 @@ with Claude (Anthropic).
 - Old screenshots that showed real experiment details were replaced.
 
 ### Known issues
-- Time mode likely runs continuously: the drive is kept in continuous mode for every mode
-  (since the Volume mode fix in August 2026) and only Volume mode has a software stop.
-- Errors in the background comms loop are swallowed silently, so a dropped connection isn't
-  logged.
-- `cmd_restart_app` is defined twice in `pump_gui.py`; the second definition is the one used.
+- Time mode likely runs continuously, Off/Interval and Batch Total are ignored, and
+  communication errors are not logged (all fixed in the next release).

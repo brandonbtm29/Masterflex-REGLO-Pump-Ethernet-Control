@@ -16,7 +16,7 @@ Machine-specific notes (clone paths, machine names) go in `CLAUDE.local.md`, whi
 - Use raw CIP assembly messaging (class 0x04, attribute 0x03): instance **100** = 56-byte input (read), instance **112** = 28-byte output (write). Tag writes are not supported. Byte maps are in the README.
 
 ## Code map (`pump_gui.py`, ~1,500 lines)
-`SignalManager` (Qt signals), `SettingsDialog`, `MasterflexPumpGUI(QMainWindow)`. `settings_location.py` is shared (identical copy in every UAkron repo).
+`SignalManager` (Qt signals), `SettingsDialog`, `MasterflexPumpGUI(QMainWindow)`. Comms: `_read_input` / `_send_output` / `_poll_once` (background thread) report failures through `_report_comm` → `link_state_signal`. `dispense.py` (no Qt) runs Time/Volume programs in software; the drive is always kept in continuous mode (byte 4 = 0) because it locks up when switched over EtherNet/IP. `settings_location.py` is shared (identical copy in every UAkron repo). Tests use `FakePump` from `tests/conftest.py`.
 
 ## Where code and data live
 - **Code** (this repo) is cloned outside SyncThing and syncs through GitHub only.
