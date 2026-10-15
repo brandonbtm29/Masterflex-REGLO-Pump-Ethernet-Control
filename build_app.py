@@ -1,6 +1,5 @@
-import sys
 import subprocess
-import os
+import sys
 
 
 def ensure_requirements():

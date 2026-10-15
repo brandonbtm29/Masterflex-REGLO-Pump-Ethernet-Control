@@ -2,8 +2,8 @@
 
 __version__ = "1.0.0"
 
-import sys
 import os
+import sys
 
 # --- Code vs data -----------------------------------------------------------
 # Code lives in GitHub Projects/UAkron/<repo>; data (exports, backups, logs) lives
@@ -34,52 +34,51 @@ os.makedirs(os.path.join(DATA_DIR, "Data"), exist_ok=True)
 RUN_LOG = os.path.join(DATA_DIR, "Data", "run_log.csv")
 RUN_LOG_BACKUP = os.path.join(DATA_DIR, "Data", "run_log_backup.csv")
 
-import threading
-import time
-import struct
+import csv
 import json
 import shutil
+import struct
+import threading
+import time
 import webbrowser
-import csv
 
+from PyQt6.QtCore import QObject, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QIcon, QTextCursor
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
-    QPushButton,
-    QComboBox,
-    QRadioButton,
-    QSlider,
-    QCheckBox,
-    QTextEdit,
-    QGroupBox,
-    QMessageBox,
-    QFileDialog,
-    QTabWidget,
-    QDialog,
-    QGridLayout,
-    QButtonGroup,
-    QSizePolicy,
-    QScrollArea,
     QListWidget,
     QListWidgetItem,
-    QAbstractItemView,
-    QFormLayout,
-    QInputDialog,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QScrollArea,
+    QSizePolicy,
+    QSlider,
+    QTabWidget,
+    QTextEdit,
     QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QSize
-from PyQt6.QtGui import QFont, QColor, QIcon, QTextCursor
 
+# isort: split
+# Import qdarktheme after PyQt6 so it picks up the same Qt binding.
 import qdarktheme
 
 try:
-    from pycomm3 import LogixDriver, CIPDriver
-    from pycomm3.exceptions import PycommError
+    from pycomm3 import CIPDriver, LogixDriver
 
     # Minimal EtherNet/IP driver bypassing strict identity handshakes
     class PumpDriver(LogixDriver):
@@ -385,7 +384,7 @@ class MasterflexPumpGUI(QMainWindow):
     def load_settings(self):
         if os.path.exists(self.config_file):
             try:
-                with open(self.config_file, "r") as f:
+                with open(self.config_file) as f:
                     self.config_data = json.load(f)
             except Exception:
                 pass
@@ -1313,7 +1312,7 @@ class MasterflexPumpGUI(QMainWindow):
         saved_rows = set()
         if os.path.exists(RUN_LOG):
             try:
-                with open(RUN_LOG, "r", encoding="utf-8") as f:
+                with open(RUN_LOG, encoding="utf-8") as f:
                     reader = csv.reader(f)
                     next(reader, None)
                     for row in reader:
@@ -1324,7 +1323,7 @@ class MasterflexPumpGUI(QMainWindow):
 
         if os.path.exists(RUN_LOG_BACKUP):
             try:
-                with open(RUN_LOG_BACKUP, "r", encoding="utf-8") as f:
+                with open(RUN_LOG_BACKUP, encoding="utf-8") as f:
                     reader = csv.reader(f)
                     next(reader, None)
                     for row in reader:
