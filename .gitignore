@@ -1,28 +1,39 @@
-__pycache__/
-*.pyc
-.DS_Store
-Data/
-Ignore/
-
-# PyInstaller
-build/
-dist/
-*.spec
-__pycache__/
-*.pyc
-run_log*.csv
-
-# Local environment / Claude Code personal files
-.venv/
+# --- Your private settings: NEVER commit these ---
+pump_config.json
+settings_location.json
+secrets.json
+.env
 CLAUDE.local.md
 .claude/settings.local.json
 
-# Local app state and data (live in SyncThing data folder)
-pump_config.json
+# --- Instrument data (lives in the SyncThing data folder, not here) ---
+Data/
+Ignore/
+run_log*.csv
 *.bak
-# Per-machine pointer to the settings folder
-settings_location.json
-# Vendor manuals and data live in SyncThing (MasterFlex Pump/Reference/)
+*.xlsx
+
+# --- Vendor manuals and third-party material (kept in SyncThing: MasterFlex Pump/Reference/) ---
 Manuals/
 Masterflex on GitHub/
-*.xlsx
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- Build output (PyInstaller) ---
+build/
+dist/
+*.spec
+
+# --- OS / editor junk ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

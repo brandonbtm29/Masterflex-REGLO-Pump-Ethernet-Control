@@ -1,0 +1,13 @@
+# Normalise text files; keep launcher line endings right for each OS.
+* text=auto
+# Windows launchers need CRLF.
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+*.ps1      text eol=crlf
+# macOS/Linux launchers must stay LF or bash refuses them.
+*.command  text eol=lf
+*.sh       text eol=lf
+# Binary assets.
+*.png      binary
+*.ico      binary
+*.pdf      binary
