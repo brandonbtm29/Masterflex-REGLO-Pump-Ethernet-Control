@@ -60,3 +60,34 @@ def test_dashboard_ignores_stale_data_while_link_is_down(connected):
     window.running_indicator.setText("sentinel")
     window.update_dashboard()
     assert window.running_indicator.text() == "sentinel"
+
+
+def test_connect_runs_the_real_poll_thread(window, qapp, monkeypatch):
+    """End to end: Connect starts the background thread, which talks to the (fake) pump and
+    reports a dropped link to the window through a Qt signal."""
+    import time
+
+    from conftest import FakePump
+
+    pump = FakePump()
+    pump.open = lambda: None
+    monkeypatch.setattr("pump_gui.PumpDriver", lambda target: pump)
+    window.ip_entry.setText("192.0.2.10")
+    window.toggle_connection()
+    try:
+        deadline = time.monotonic() + 2
+        while len(pump.writes) < 3 and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.02)
+        assert len(pump.writes) >= 3  # watchdog block re-sent every ~100 ms
+
+        pump.fail_with = CommError("cable unplugged")
+        deadline = time.monotonic() + 2
+        while window.link_ok and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.02)
+        qapp.processEvents()
+        assert window.status_label.text() == "Status: No response from pump"
+    finally:
+        window.toggle_connection()  # disconnect; the thread exits on its next cycle
+        time.sleep(0.25)
