@@ -25,6 +25,7 @@ os.chdir(DATA_DIR)
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 import dispense
+import protocol as proto
 import settings_location
 
 APP_DIR = settings_location.app_folder(script_dir)
@@ -38,7 +39,6 @@ RUN_LOG_BACKUP = os.path.join(DATA_DIR, "Data", "run_log_backup.csv")
 import csv
 import json
 import shutil
-import struct
 import threading
 import time
 import webbrowser
@@ -94,58 +94,9 @@ try:
 except ImportError:
     PYCOMM3_AVAILABLE = False
 
-# --- Configuration ---
-INPUT_TAG = "Input"  # 56 bytes input data
-OUTPUT_TAG = "Output"  # 28 bytes output data
 MASTERFLEX_ORANGE = "#F04E23"
-
-FLOW_UNITS = {
-    0: "L/S",
-    1: "mL/min",
-    2: "mL/hr",
-    3: "L/min",
-    4: "L/hr",
-    5: "L/day",
-    6: "uL/min",
-    7: "uL/hr",
-    8: "gal/min",
-    9: "gal/hr",
-    10: "gal/day",
-    11: "oz/min",
-    12: "oz/hr",
-    13: "cum/hr",
-    14: "RPM",
-    15: "%",
-}
-
-TUBE_CODES_MM = {
-    1: 0.13,
-    2: 0.19,
-    3: 0.25,
-    4: 0.38,
-    5: 0.44,
-    6: 0.51,
-    7: 0.57,
-    8: 0.64,
-    9: 0.76,
-    10: 0.89,
-    11: 0.95,
-    12: 1.02,
-    13: 1.09,
-    14: 1.14,
-    15: 1.22,
-    16: 1.33,
-    17: 1.42,
-    18: 1.52,
-    19: 1.65,
-    20: 1.75,
-    21: 1.85,
-    22: 2.06,
-    23: 2.29,
-    24: 2.54,
-    25: 2.79,
-    26: 3.17,
-}
+FLOW_UNITS = proto.FLOW_UNITS
+TUBE_CODES_MM = proto.TUBE_CODES_MM
 
 
 class CollapsibleBox(QWidget):
@@ -360,8 +311,8 @@ class MasterflexPumpGUI(QMainWindow):
         self._comm_lock = threading.Lock()
 
         # Data arrays
-        self.output_data = bytearray(28)
-        self.input_data = bytearray(56)
+        self.output_data = bytearray(proto.OUTPUT_SIZE)
+        self.input_data = bytearray(proto.INPUT_SIZE)
 
         # Time/Volume programs run in software; the drive itself stays in continuous mode.
         self.dispense = dispense.DispenseController()
@@ -1118,10 +1069,8 @@ class MasterflexPumpGUI(QMainWindow):
             return
         self.cmd_stop()
         for _ in range(15):
-            if len(self.input_data) >= 4:
-                status_int = struct.unpack_from("<i", self.input_data, 0)[0]
-                if not (status_int & 2) and not (status_int & 4):
-                    break
+            if len(self.input_data) >= proto.INPUT_SIZE and not proto.decode_status(self.input_data).moving:
+                break
             time.sleep(0.1)
 
     def _trigger_falling_edge(self, bit_pos, log_msg):
@@ -1165,14 +1114,15 @@ class MasterflexPumpGUI(QMainWindow):
                 was_running = True
                 self._safe_stop()
 
-            struct.pack_into("<f", self.output_data, 8, flow_val)
-            struct.pack_into("<f", self.output_data, 12, vol_val)
-            struct.pack_into("<f", self.output_data, 16, on_val)
-            struct.pack_into("<f", self.output_data, 20, off_val)
-            struct.pack_into("<i", self.output_data, 24, batch_val)
-            # The hardware does NOT reliably handle EIP target volumes.
-            # Keep the drive in Continuous mode (0); Time and Volume run in software (dispense.py).
-            self.output_data[4] = 0
+            # The drive stays in continuous mode; Time and Volume run in software (dispense.py).
+            proto.pack_parameters(
+                self.output_data,
+                flow=flow_val,
+                volume=vol_val,
+                on_time=on_val,
+                off_time=off_val,
+                batch=batch_val,
+            )
 
             self.write_output_data()
 
@@ -1460,12 +1410,7 @@ class MasterflexPumpGUI(QMainWindow):
         self.write_output_data()
 
     def cmd_update_unit(self, choice):
-        unit_code = 0
-        for k, v in FLOW_UNITS.items():
-            if v == choice:
-                unit_code = k
-                break
-        self.output_data[6] = unit_code
+        self.output_data[6] = proto.unit_code(choice)
         self.write_output_data()
         self.log_msg(f"Unit updated to: {choice}")
         self.update_parameter_visibility()
@@ -1511,9 +1456,8 @@ class MasterflexPumpGUI(QMainWindow):
         if self.connected:
             self._safe_stop()
 
-        # The hardware does NOT reliably handle EIP target volumes.
-        # Keep the drive in Continuous mode (0); Time and Volume run in software (dispense.py).
-        self.output_data[4] = 0
+        # The drive stays in continuous mode; Time and Volume run in software (dispense.py).
+        self.output_data[4] = proto.CONTINUOUS
 
         if self.connected:
             self.write_output_data()
@@ -1531,7 +1475,7 @@ class MasterflexPumpGUI(QMainWindow):
                 tag = self.plc.generic_message(
                     service=b"\x10",
                     class_code=b"\x04",
-                    instance=112,
+                    instance=proto.OUTPUT_INSTANCE,
                     attribute=b"\x03",
                     request_data=bytes(self.output_data),
                 )
@@ -1545,13 +1489,13 @@ class MasterflexPumpGUI(QMainWindow):
         try:
             with self.plc_lock:
                 result = self.plc.generic_message(
-                    service=b"\x0e", class_code=b"\x04", instance=100, attribute=b"\x03"
+                    service=b"\x0e", class_code=b"\x04", instance=proto.INPUT_INSTANCE, attribute=b"\x03"
                 )
         except Exception as e:
             return f"read failed: {e}"
         if not result or not result.value:
             return f"read failed: {getattr(result, 'error', None) or 'no data'}"
-        if len(result.value) < 56:
+        if len(result.value) < proto.INPUT_SIZE:
             return f"read returned {len(result.value)} bytes, expected 56"
         self.input_data = result.value
         return ""
@@ -1600,22 +1544,20 @@ class MasterflexPumpGUI(QMainWindow):
 
     def update_dashboard(self):
         # While the pump isn't answering, input_data is stale: don't act on it.
-        if not self.connected or not self.link_ok or len(self.input_data) < 56:
+        if not self.connected or not self.link_ok or len(self.input_data) < proto.INPUT_SIZE:
             return
 
-        status_int = struct.unpack_from("<i", self.input_data, 0)[0]
-        status_ok = bool(status_int & 1)
-        is_running = bool(status_int & 2)
-        dispense_running = bool(status_int & 4)
-        local_mode = not bool(status_int & 128)
-
-        tube_code = self.input_data[5]
-
-        cum_vol = struct.unpack_from("<f", self.input_data, 8)[0]
-        batch_current = struct.unpack_from("<i", self.input_data, 24)[0]
-        min_flow = struct.unpack_from("<f", self.input_data, 32)[0]
-        cur_flow = struct.unpack_from("<f", self.input_data, 36)[0]
-        max_flow = struct.unpack_from("<f", self.input_data, 40)[0]
+        st = proto.decode_status(self.input_data)
+        status_ok = st.ok
+        is_running = st.running
+        dispense_running = st.dispensing
+        local_mode = not st.remote
+        tube_code = st.tube_code
+        cum_vol = st.cum_volume
+        batch_current = st.batch
+        min_flow = st.min_flow
+        cur_flow = st.flow
+        max_flow = st.max_flow
 
         try:
             self.flow_limits_label.setText(f"Calibrated Limits:\nMin: {min_flow:.2f} | Max: {max_flow:.2f}")
