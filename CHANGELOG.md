@@ -7,6 +7,12 @@ the last, and changes that break existing settings or workflows bump the first.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-15
+
+Safer pump control, working Time mode, one-click updates and a desktop icon. These changes
+were tested with a simulated pump (including real threads); check a short Time and Volume
+run on your pump before relying on them for an experiment.
+
 ### Fixed
 - **Time mode works.** It used to run until stopped; now it runs for On Time seconds.
 - **Off/Interval and Batch Total are honoured** in Time and Volume modes: dispense, pause,
@@ -14,7 +20,6 @@ the last, and changes that break existing settings or workflows bump the first.
 - **Communication problems are reported.** If the pump stops answering or rejects a command,
   the event log says so once, the status bar shows "No response from pump", and the app logs
   again when the pump is back. The dashboard no longer acts on stale data in the meantime.
-
 - **Stops don't depend on the window.** Time/Volume programs run in the communication thread,
   so a busy or frozen window can't delay a stop.
 - **Disconnect and closing the app stop a running pump** first, and log the end of the run
