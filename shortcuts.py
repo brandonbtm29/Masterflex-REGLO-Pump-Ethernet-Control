@@ -6,10 +6,16 @@
 - Linux: a .desktop launcher, in the applications menu and on the desktop if there is one.
 
 The icon starts the app the same way as the launchers: with the project's .venv if there
-is one, without a console window. In a built app it starts the app itself.
+is one, without a console or Terminal window. In a built app it starts the app itself.
+
+``ensure`` is called at every launch: it adds the icon the first time the app runs on a
+computer, and rewrites it when the icon image, the Python it uses or the app's location
+changed (e.g. after an update). If you delete the icon, it stays deleted; the button in
+Settings > App adds it back.
 No Qt here, so it can be tested on its own.
 """
 
+import hashlib
 import os
 import plistlib
 import subprocess
@@ -45,6 +51,44 @@ def _python(root, windowed, platform):
 
 def _desktop(home):
     return os.path.join(home, "Desktop")
+
+
+def icon_file(assets, platform=sys.platform):
+    name = {"darwin": "pump.icns", "win32": "pump.ico"}.get(platform, "pump.png")
+    return os.path.join(assets, name)
+
+
+def stamp(root, assets, platform=sys.platform):
+    """A fingerprint of everything the icon depends on; when it changes, the icon is rewritten."""
+    digest = hashlib.sha256()
+    if _frozen():
+        digest.update(sys.executable.encode())
+    else:
+        digest.update(_python(root, windowed=True, platform=platform).encode())
+        digest.update(os.path.abspath(root).encode())
+    try:
+        with open(icon_file(assets, platform), "rb") as f:
+            digest.update(f.read())
+    except OSError:
+        pass
+    return digest.hexdigest()[:16]
+
+
+def ensure(root, assets, record, *, platform=sys.platform, home=None, run=subprocess.run):
+    """Keep this computer's desktop icon current.
+
+    ``record`` is what the app saved last time for this computer ({"path", "stamp"}), or None
+    if it has never made one here. Returns (record, message); message is "" when nothing
+    changed. Raises OSError/RuntimeError like ``create``.
+    """
+    current = stamp(root, assets, platform)
+    if record and record.get("path") and not os.path.exists(record["path"]):
+        return record, ""  # deleted by the user: respect that
+    if record and record.get("stamp") == current:
+        return record, ""
+    path = create(root, assets, platform=platform, home=home, run=run)
+    message = f"Updated the desktop icon: {path}" if record else f"Added a desktop icon: {path}"
+    return {"path": path, "stamp": current}, message
 
 
 def create(root, assets, *, platform=sys.platform, home=None, run=subprocess.run):

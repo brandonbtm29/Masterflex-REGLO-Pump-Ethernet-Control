@@ -41,6 +41,7 @@ ASSETS = os.path.join(script_dir, "assets")
 APP_NAME = "Masterflex REGLO Pump Control"
 
 import json
+import platform
 import shutil
 import subprocess
 import threading
@@ -99,6 +100,11 @@ except ImportError:
     PYCOMM3_AVAILABLE = False
 
 MASTERFLEX_ORANGE = "#F04E23"
+VERSION_STYLE_CURRENT = "QPushButton { color: grey; border: none; padding: 0 4px; }"
+VERSION_STYLE_OLD = (
+    f"QPushButton {{ color: white; background-color: {MASTERFLEX_ORANGE}; font-weight: bold; "
+    "border: none; border-radius: 3px; padding: 2px 8px; }"
+)
 FLOW_UNITS = proto.FLOW_UNITS
 TUBE_CODES_MM = proto.TUBE_CODES_MM
 
@@ -147,6 +153,8 @@ class SignalManager(QObject):
     discovery_failed_signal = pyqtSignal(str)
     link_state_signal = pyqtSignal(bool, str)  # (ok, error) when pump communication fails or recovers
     connect_result_signal = pyqtSignal(object, str)  # (driver or None, error) from the connect thread
+    update_check_signal = pyqtSignal(object, str)  # (Release or None, error) from the update check
+    desktop_icon_signal = pyqtSignal(object, str, str)  # (record, message, error) from ensure_desktop_icon
 
 
 class DialogSignals(QObject):
@@ -228,7 +236,10 @@ class SettingsDialog(QDialog):
         self.shortcut_btn = QPushButton(shortcuts.button_label())
         self.shortcut_btn.clicked.connect(self.on_create_shortcut)
         app_layout.addWidget(self.shortcut_btn)
-        self.shortcut_status = QLabel("Puts an icon with the pump logo on your desktop that starts this app.")
+        self.shortcut_status = QLabel(
+            "The app adds an icon with the pump logo to your desktop the first time it runs on a "
+            "computer, and keeps it up to date. Use this button to add it again if you deleted it."
+        )
         self.shortcut_status.setWordWrap(True)
         self.shortcut_status.setStyleSheet("color: grey;")
         self.shortcut_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -357,6 +368,7 @@ class SettingsDialog(QDialog):
         except (OSError, RuntimeError, subprocess.SubprocessError) as e:
             self.shortcut_status.setText(f"Couldn't create it: {e}")
             return
+        self.parent().record_desktop_icon({"path": path, "stamp": shortcuts.stamp(script_dir, ASSETS)})
         tip = " Drag it into the Dock to keep it there." if sys.platform == "darwin" else ""
         self.shortcut_status.setText(f"Created {path}.{tip}")
         self.parent().log_msg(f"Desktop icon created: {path}")
@@ -458,6 +470,8 @@ class MasterflexPumpGUI(QMainWindow):
         self.signals.discovery_failed_signal.connect(self.reset_discover_btn)
         self.signals.link_state_signal.connect(self.on_link_state)
         self.signals.connect_result_signal.connect(self.on_connect_result)
+        self.signals.update_check_signal.connect(self.on_update_check)
+        self.signals.desktop_icon_signal.connect(self.on_desktop_icon)
 
         self.setup_ui()
 
@@ -842,6 +856,16 @@ class MasterflexPumpGUI(QMainWindow):
         self.tube_indicator.setStyleSheet("color: grey; font-weight: bold;")
         status_layout.addWidget(self.tube_indicator)
 
+        # Version, bottom right. Turns orange when GitHub has a newer release (see start_update_check).
+        status_layout.addStretch()
+        self.version_btn = QPushButton(f"v{__version__}")
+        self.version_btn.setFlat(True)
+        self.version_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.version_btn.setToolTip("Version of this app. Click for updates.")
+        self.version_btn.setStyleSheet(VERSION_STYLE_CURRENT)
+        self.version_btn.clicked.connect(lambda: self.cmd_open_settings(tab="App"))
+        status_layout.addWidget(self.version_btn)
+
         right_panel.addWidget(status_frame)
 
         self.apply_loaded_settings()
@@ -1043,9 +1067,84 @@ class MasterflexPumpGUI(QMainWindow):
         except ValueError:
             self.log_error("Invalid Max RPM value.")
 
-    def cmd_open_settings(self):
+    def cmd_open_settings(self, tab=None):
         dialog = SettingsDialog(self)
+        if tab:
+            for i in range(dialog.tabview.count()):
+                if dialog.tabview.tabText(i) == tab:
+                    dialog.tabview.setCurrentIndex(i)
         dialog.exec()
+
+    # --- Version check and desktop icon (started by main(), both in the background) ------
+
+    def start_update_check(self):
+        """Ask GitHub for the latest release now, and again every day while the app is open."""
+
+        def work():
+            try:
+                self.signals.update_check_signal.emit(updates.latest_release(__version__), "")
+            except LookupError as e:
+                self.signals.update_check_signal.emit(None, str(e))
+
+        threading.Thread(target=work, daemon=True).start()
+        if not hasattr(self, "_update_timer"):
+            self._update_timer = QTimer(self)
+            self._update_timer.timeout.connect(self.start_update_check)
+            self._update_timer.start(24 * 3600 * 1000)
+
+    def on_update_check(self, release, error):
+        checked = time.strftime("%H:%M")
+        if release is not None and updates.is_newer(release.version, __version__):
+            self.latest_release = release
+            self.version_btn.setText(f"v{__version__}  ·  Update available: v{release.version}")
+            self.version_btn.setStyleSheet(VERSION_STYLE_OLD)
+            self.version_btn.setToolTip(
+                f"This is version {__version__}; {release.version} is available. "
+                "Click, then Check for Updates."
+            )
+            if getattr(self, "_announced", None) != release.version:
+                self._announced = release.version
+                self.log_msg(
+                    f"Version {release.version} is available: click the version number (bottom right)."
+                )
+            return
+        self.version_btn.setText(f"v{__version__}")
+        self.version_btn.setStyleSheet(VERSION_STYLE_CURRENT)
+        if release is not None:
+            self.version_btn.setToolTip(f"Up to date (checked {checked}). Click for updates.")
+        else:
+            self.version_btn.setToolTip(f"Couldn't check for updates at {checked}: {error}")
+
+    def _icon_key(self):
+        return f"{platform.node()} ({sys.platform})"
+
+    def ensure_desktop_icon(self):
+        """Add the desktop icon on first launch on this computer, and refresh it when it's out of
+        date (new icon image, moved folder, new .venv). Runs in the background."""
+        record = (self.config_data.get("desktop_icons") or {}).get(self._icon_key())
+
+        def work():
+            try:
+                new, message = shortcuts.ensure(script_dir, ASSETS, record)
+                self.signals.desktop_icon_signal.emit(new, message, "")
+            except Exception as e:  # never let the icon stop the app from starting
+                self.signals.desktop_icon_signal.emit(record, "", str(e))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_desktop_icon(self, record, message, error):
+        if error:
+            self.log_error(f"Couldn't add or update the desktop icon: {error}")
+            return
+        if message:
+            self.record_desktop_icon(record)
+            self.log_msg(message)
+
+    def record_desktop_icon(self, record):
+        icons = dict(self.config_data.get("desktop_icons") or {})
+        icons[self._icon_key()] = record
+        self.config_data["desktop_icons"] = icons
+        self.save_all_settings()
 
     def cmd_restart_app(self):
         self.save_all_settings()
@@ -1815,7 +1914,18 @@ def relaunch_command():
     return sys.executable, [os.path.abspath(__file__), *sys.argv[1:]]
 
 
+def _detach_from_terminal():
+    """macOS/Linux launchers start the app in the background and close their Terminal window;
+    leaving the Terminal's session means closing that window can't take the app with it."""
+    if os.environ.pop("REGLO_DETACH", "") and hasattr(os, "setsid"):
+        try:
+            os.setsid()
+        except OSError:
+            pass  # already a session leader
+
+
 def main():
+    _detach_from_terminal()
     os.makedirs(LOG_DIR, exist_ok=True)
     crash_log.setup("masterflex_pump", os.path.join(DATA_DIR, "logs"), __version__)  # errors -> logs/
     os.chdir(DATA_DIR)  # relative paths (e.g. in file dialogs) start in the data folder
@@ -1826,6 +1936,8 @@ def main():
     app.setWindowIcon(QIcon(os.path.join(ASSETS, "pump.png")))
     window = MasterflexPumpGUI()
     window.showMaximized()
+    QTimer.singleShot(1500, window.start_update_check)
+    QTimer.singleShot(2500, window.ensure_desktop_icon)
     return app.exec()
 
 

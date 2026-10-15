@@ -67,3 +67,26 @@ def test_linux_desktop_file(tmp_path):
     text = open(path, encoding="utf-8").read()
     assert "Name=Masterflex Pump" in text and "pump.png" in text
     assert os.path.exists(tmp_path / ".local" / "share" / "applications" / "masterflex-reglo.desktop")
+
+
+def test_ensure_adds_once_refreshes_when_stale_and_respects_deletion(tmp_path):
+    import shutil
+
+    assets = tmp_path / "assets"
+    shutil.copytree(ASSETS, assets)
+    root, home = str(tmp_path / "repo"), str(tmp_path)
+    (tmp_path / "Desktop").mkdir()
+
+    record, message = shortcuts.ensure(root, str(assets), None, platform="linux", home=home)
+    assert message.startswith("Added a desktop icon") and os.path.exists(record["path"])
+
+    same, message = shortcuts.ensure(root, str(assets), record, platform="linux", home=home)
+    assert same == record and message == ""  # nothing changed: left alone
+
+    (assets / "pump.png").write_bytes(b"new icon image" * 100)  # e.g. an update changed the icon
+    newer, message = shortcuts.ensure(root, str(assets), record, platform="linux", home=home)
+    assert message.startswith("Updated the desktop icon") and newer["stamp"] != record["stamp"]
+
+    os.remove(newer["path"])  # deleted by the user
+    kept, message = shortcuts.ensure(root, str(assets), newer, platform="linux", home=home)
+    assert kept == newer and message == "" and not os.path.exists(newer["path"])

@@ -227,3 +227,58 @@ def test_settings_has_update_and_icon_buttons_and_no_restart(window, pump_gui, m
     dialog.on_update_checked(None, "Couldn't reach GitHub. Check the internet connection.")
     assert "Couldn't reach GitHub" in dialog.update_status.text()
     dialog.close()
+
+
+def test_version_shows_bottom_right_and_flags_an_old_version(window, pump_gui):
+    import updates
+
+    assert window.version_btn.text() == f"v{pump_gui.__version__}"
+    newer = updates.Release("99.0.0", "v99.0.0", "", updates.RELEASES_URL)
+    window.on_update_check(newer, "")
+    assert "Update available: v99.0.0" in window.version_btn.text()
+    assert pump_gui.MASTERFLEX_ORANGE in window.version_btn.styleSheet()
+    assert "99.0.0 is available" in window.console_textbox.toPlainText()
+
+    same = updates.Release(pump_gui.__version__, f"v{pump_gui.__version__}", "", updates.RELEASES_URL)
+    window.on_update_check(same, "")
+    assert window.version_btn.text() == f"v{pump_gui.__version__}"
+    assert "Up to date" in window.version_btn.toolTip()
+
+    window.on_update_check(None, "Couldn't reach GitHub.")
+    assert "Couldn't check" in window.version_btn.toolTip()
+
+
+def test_clicking_the_version_opens_settings_on_the_app_tab(window, pump_gui, monkeypatch):
+    shown = []
+    monkeypatch.setattr(
+        pump_gui.SettingsDialog,
+        "exec",
+        lambda self: shown.append(self.tabview.tabText(self.tabview.currentIndex())),
+    )
+    window.version_btn.click()
+    assert shown == ["App"]
+
+
+def test_desktop_icon_is_made_on_first_launch_and_remembered(window, pump_gui, qapp, monkeypatch):
+    import time
+
+    import shortcuts
+
+    calls = []
+
+    def fake_ensure(root, assets, record):
+        calls.append(record)
+        return {"path": "/Desktop/Masterflex Pump.app", "stamp": "abc"}, "Added a desktop icon: here"
+
+    monkeypatch.setattr(shortcuts, "ensure", fake_ensure)
+    window.config_data.pop("desktop_icons", None)
+    window.ensure_desktop_icon()
+    deadline = time.monotonic() + 2
+    while not window.config_data.get("desktop_icons") and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.02)
+    assert calls == [None]
+    assert list(window.config_data["desktop_icons"].values()) == [
+        {"path": "/Desktop/Masterflex Pump.app", "stamp": "abc"}
+    ]
+    assert "Added a desktop icon" in window.console_textbox.toPlainText()
