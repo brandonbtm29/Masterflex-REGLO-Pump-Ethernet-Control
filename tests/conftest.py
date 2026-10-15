@@ -59,3 +59,40 @@ def fake_input(*, status=0b10000011, tube=18, unit=1, cum_vol=18.75, batch=1, lo
     struct.pack_into("<f", data, 36, flow)
     struct.pack_into("<f", data, 40, hi)
     return data
+
+
+class FakePump:
+    """Stands in for PumpDriver: answers generic_message like the REGLO, or fails on demand."""
+
+    def __init__(self, input_data=None):
+        from pycomm3 import Tag
+
+        self._tag = Tag
+        self.input_data = input_data if input_data is not None else fake_input()
+        self.fail_with = None  # an exception to raise on every call
+        self.write_error = None  # a CIP error string for writes
+        self.writes = []
+
+    def generic_message(self, service, class_code, instance, attribute=b"", request_data=b"", **kw):
+        if self.fail_with:
+            raise self.fail_with
+        if service == b"\x0e":
+            return self._tag("generic", bytes(self.input_data), None, None)
+        self.writes.append(bytes(request_data))
+        if self.write_error:
+            return self._tag("generic", None, None, self.write_error)
+        return self._tag("generic", b"", None, None)
+
+    def close(self):
+        pass
+
+
+@pytest.fixture
+def connected(window):
+    """The window, 'connected' to a FakePump (no thread, no network)."""
+    pump = FakePump()
+    window.plc = pump
+    window.connected = True
+    window.link_ok = True
+    window.status_label.setText("Status: Connected (IP)")
+    return window, pump

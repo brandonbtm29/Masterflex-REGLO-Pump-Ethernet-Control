@@ -178,6 +178,7 @@ class SignalManager(QObject):
     log_error_signal = pyqtSignal(str)
     discovery_found_signal = pyqtSignal(str)
     discovery_failed_signal = pyqtSignal(str)
+    link_state_signal = pyqtSignal(bool, str)  # (ok, error) when pump communication fails or recovers
 
 
 class SettingsDialog(QDialog):
@@ -354,6 +355,8 @@ class MasterflexPumpGUI(QMainWindow):
         self.plc_lock = threading.Lock()
         self.connected = False
         self.polling = False
+        self.link_ok = True  # False while the pump isn't answering (see _report_comm)
+        self._comm_lock = threading.Lock()
 
         # Data arrays
         self.output_data = bytearray(28)
@@ -370,6 +373,7 @@ class MasterflexPumpGUI(QMainWindow):
         self.signals.log_error_signal.connect(self.log_error_ui)
         self.signals.discovery_found_signal.connect(self.set_ip_entry)
         self.signals.discovery_failed_signal.connect(self.reset_discover_btn)
+        self.signals.link_state_signal.connect(self.on_link_state)
 
         self.setup_ui()
 
@@ -1011,6 +1015,7 @@ class MasterflexPumpGUI(QMainWindow):
                 self.plc = PumpDriver(target)
                 self.plc.open()
                 self.connected = True
+                self.link_ok = True
 
                 self.status_label.setText("Status: Connected (IP)")
                 self.status_label.setStyleSheet("color: green; font-weight: bold;")
@@ -1481,45 +1486,88 @@ class MasterflexPumpGUI(QMainWindow):
             self.write_output_data()
         self.log_msg(f"Mode set to: {mode}")
 
-    def write_output_data(self):
-        if not self.connected or not self.plc:
-            return
+    # --- Pump communication -------------------------------------------------------
+    # pycomm3 raises on socket problems but only *reports* CIP errors in the returned
+    # Tag, so both are checked. Problems are logged once when they start and once when
+    # they clear (see _report_comm), not on every 100 ms cycle.
+
+    def _send_output(self):
+        """Write the 28-byte output assembly (instance 112). Returns "" or an error message."""
         try:
             with self.plc_lock:
-                self.plc.generic_message(
+                tag = self.plc.generic_message(
                     service=b"\x10",
                     class_code=b"\x04",
                     instance=112,
                     attribute=b"\x03",
                     request_data=bytes(self.output_data),
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            return f"write failed: {e}"
+        error = getattr(tag, "error", None)
+        return f"write rejected: {error}" if error else ""
+
+    def _read_input(self):
+        """Read the 56-byte input assembly (instance 100). Returns "" or an error message."""
+        try:
+            with self.plc_lock:
+                result = self.plc.generic_message(
+                    service=b"\x0e", class_code=b"\x04", instance=100, attribute=b"\x03"
+                )
+        except Exception as e:
+            return f"read failed: {e}"
+        if not result or not result.value:
+            return f"read failed: {getattr(result, 'error', None) or 'no data'}"
+        if len(result.value) < 56:
+            return f"read returned {len(result.value)} bytes, expected 56"
+        self.input_data = result.value
+        return ""
+
+    def _report_comm(self, error):
+        """Track whether the pump is answering; signal the UI only when that changes."""
+        ok = not error
+        with self._comm_lock:
+            if ok == self.link_ok:
+                return
+            self.link_ok = ok
+        self.signals.link_state_signal.emit(ok, error)
+
+    def on_link_state(self, ok, error):
+        if not self.connected:
+            return
+        if ok:
+            self.status_label.setText("Status: Connected (IP)")
+            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.log_msg("Communication with the pump restored.")
+        else:
+            self.status_label.setText("Status: No response from pump")
+            self.status_label.setStyleSheet("color: red; font-weight: bold;")
+            self.log_error(
+                f"Lost communication with the pump ({error}). Retrying. "
+                "In remote mode the pump stops by itself when it stops hearing from the app."
+            )
+
+    def write_output_data(self):
+        if not self.connected or not self.plc:
+            return
+        error = self._send_output()
+        if error:
+            self._report_comm(error)
+
+    def _poll_once(self):
+        """One watchdog cycle: read the status, then re-send the full output block."""
+        read_error = self._read_input()
+        write_error = self._send_output()
+        self._report_comm(read_error or write_error)
 
     def poll_pump_data(self):
         while self.polling and self.connected and self.plc:
-            try:
-                with self.plc_lock:
-                    result = self.plc.generic_message(
-                        service=b"\x0e", class_code=b"\x04", instance=100, attribute=b"\x03"
-                    )
-                if result and result.value:
-                    self.input_data = result.value
-
-                with self.plc_lock:
-                    self.plc.generic_message(
-                        service=b"\x10",
-                        class_code=b"\x04",
-                        instance=112,
-                        attribute=b"\x03",
-                        request_data=bytes(self.output_data),
-                    )
-            except Exception:
-                pass
+            self._poll_once()
             time.sleep(0.1)
 
     def update_dashboard(self):
-        if not self.connected or len(self.input_data) < 56:
+        # While the pump isn't answering, input_data is stale: don't act on it.
+        if not self.connected or not self.link_ok or len(self.input_data) < 56:
             return
 
         status_int = struct.unpack_from("<i", self.input_data, 0)[0]
