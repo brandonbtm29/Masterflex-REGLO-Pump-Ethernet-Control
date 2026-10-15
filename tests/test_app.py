@@ -76,3 +76,33 @@ def test_unit_and_direction_bits(window, pump_gui):
     window.dir_checkbox.setChecked(False)
     window.cmd_update_direction()
     assert not window.output_data[0] & 0b01000000
+
+
+def test_flow_outside_the_pumps_limits_is_refused(connected):
+    window, pump = connected
+    window._poll_once()
+    window.update_dashboard()  # learns the limits 0.02 to 14.69
+    window.flow_entry.setText("20")
+    assert window.cmd_apply_params() is None
+    assert "outside the pump's calibrated range" in window.console_textbox.toPlainText()
+    window.flow_entry.setText("14.69")
+    assert window.cmd_apply_params() is not None
+
+
+def test_negative_and_zero_values_are_refused(window):
+    window.flow_entry.setText("0")
+    assert window.cmd_apply_params() is None
+    window.flow_entry.setText("5")
+    window.off_time_entry.setText("-1")
+    assert window.cmd_apply_params() is None
+    log = window.console_textbox.toPlainText()
+    assert "Flow rate must be above 0" in log and "Off/Interval can't be negative" in log
+
+
+def test_changing_unit_forgets_the_old_limits(connected):
+    window, pump = connected
+    window._poll_once()
+    window.update_dashboard()
+    assert window._flow_limits
+    window.unit_menu.setCurrentText("uL/min")
+    assert window._flow_limits is None

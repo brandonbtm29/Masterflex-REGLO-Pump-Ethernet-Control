@@ -7,7 +7,11 @@ This module holds that decision logic with no Qt or network code, so it can be t
 One cycle = dispense (for ``on_time`` seconds, or until ``volume`` has been pumped), then
 pause for ``off_time`` seconds, repeated ``batch_total`` times (0 = until stopped).
 Timing and volume start counting when the pump actually reports that it is running, so
-spin-up delay doesn't shorten a dispense.
+spin-up delay doesn't shorten a dispense. If the pump is stopped from its own touchscreen
+during a dispense, or never starts, the program gives up rather than restarting it later.
+
+``tick`` is called from the communication thread about every 100 ms; the caller holds a
+lock around it and around ``start``/``cancel``.
 """
 
 TIME = 1
@@ -19,6 +23,10 @@ DISPENSING = "dispensing"
 PAUSING = "pausing"
 DONE = "done"
 
+STOP_GRACE = 0.5  # s the pump may report "not running" mid-dispense before we treat it as stopped
+SETTLE = 1.0  # s after a dispense starts during which "not running" readings are ignored
+START_TIMEOUT = 5.0  # s to wait for the pump to start before giving up
+
 
 class DispenseController:
     def __init__(self):
@@ -27,7 +35,10 @@ class DispenseController:
         self.on_time = self.volume = self.off_time = 0.0
         self.batch_total = 1
         self.batches_done = 0
+        self.event = ""  # last notable thing that happened, for the log; cleared by take_event()
         self._t0 = self._v0 = 0.0
+        self._waiting_since = None
+        self._idle_since = None
 
     @property
     def active(self):
@@ -56,10 +67,34 @@ class DispenseController:
         self.on_time, self.volume, self.off_time = float(on_time), float(volume), float(off_time)
         self.batch_total = int(batch_total)
         self.batches_done = 0
-        self.state = WAITING
+        self.event = ""
+        self._wait()
 
     def cancel(self):
         self.state = IDLE
+
+    def take_event(self):
+        event, self.event = self.event, ""
+        return event
+
+    def _wait(self):
+        self.state = WAITING
+        self._waiting_since = None
+
+    def _give_up(self, why):
+        self.state = IDLE
+        self.event = why
+        return False
+
+    def remaining(self, now, cum_vol, flow_per_second=None):
+        """Seconds left in the current dispense, or None if unknown or not dispensing."""
+        if self.state != DISPENSING:
+            return None
+        if self.mode == TIME:
+            return max(0.0, self.on_time - (now - self._t0))
+        if flow_per_second and flow_per_second > 0:
+            return max(0.0, (self.volume - (cum_vol - self._v0)) / flow_per_second)
+        return None
 
     def progress(self):
         """Batch progress for the dashboard, e.g. "2/5" or "3/∞"."""
@@ -76,10 +111,24 @@ class DispenseController:
         if self.state == WAITING:
             if running:
                 self._t0, self._v0 = now, cum_vol
+                self._idle_since = None
                 self.state = DISPENSING
+                return None
+            if self._waiting_since is None:
+                self._waiting_since = now
+            elif now - self._waiting_since >= START_TIMEOUT:
+                return self._give_up(
+                    "Program stopped: the pump didn't start. Is it in remote mode, with the head closed?"
+                )
             return None
 
         if self.state == DISPENSING:
+            if running or now - self._t0 < SETTLE:
+                self._idle_since = None
+            elif self._idle_since is None:
+                self._idle_since = now
+            elif now - self._idle_since >= STOP_GRACE:
+                return self._give_up("Program stopped: the pump was stopped outside the app.")
             if self.mode == TIME:
                 finished = now - self._t0 >= self.on_time
             else:
@@ -89,6 +138,7 @@ class DispenseController:
             self.batches_done += 1
             if self.batch_total and self.batches_done >= self.batch_total:
                 self.state = DONE
+                self.event = f"Program finished: {self.progress()} dispenses."
                 return False
             if self.off_time > 0:
                 self._t0 = now
@@ -98,7 +148,7 @@ class DispenseController:
             return None
 
         if self.state == PAUSING and now - self._t0 >= self.off_time:
-            self.state = WAITING
+            self._wait()
             return True
 
         return None

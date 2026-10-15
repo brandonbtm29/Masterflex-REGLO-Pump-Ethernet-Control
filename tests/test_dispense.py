@@ -75,9 +75,10 @@ def set_program(window, mode_radio, **fields):
 
 
 def step(window, pump, now, monkeypatch, **status):
+    """One comms cycle at time ``now`` (the program runs in _poll_once), then a dashboard refresh."""
     pump.input_data = fake_input(**status)
-    window._poll_once()
     monkeypatch.setattr("pump_gui.time.monotonic", lambda: now)
+    window._poll_once()
     window.update_dashboard()
 
 
@@ -120,3 +121,55 @@ def test_continuous_mode_has_no_program(connected):
     window.flow_entry.setText("5")
     window.cmd_start()
     assert window.output_data[0] & 1 and not window.dispense.active
+
+
+def test_program_gives_up_if_pump_is_stopped_outside_the_app():
+    c = d.DispenseController()
+    c.start(d.TIME, on_time=60, batch_total=0)
+    # running from t=0; stopped on the touchscreen at t=10 (after the 1 s settle time)
+    steps = [(0, 0, True), (5, 0, True), (10, 0, False), (10.4, 0, False), (10.5, 0, False)]
+    assert run(c, steps) == [(10.5, False)]
+    assert c.state == d.IDLE and "stopped outside the app" in c.take_event()
+    assert c.take_event() == ""  # events are handed out once
+
+
+def test_brief_not_running_right_after_start_is_ignored():
+    c = d.DispenseController()
+    c.start(d.TIME, on_time=5)
+    assert run(c, [(0, 0, True), (0.3, 0, False), (0.9, 0, False), (1.2, 0, True)]) == []
+    assert c.state == d.DISPENSING
+
+
+def test_program_gives_up_if_pump_never_starts():
+    c = d.DispenseController()
+    c.start(d.VOLUME, volume=5)
+    assert run(c, [(0, 0, False), (4.9, 0, False), (5.0, 0, False)]) == [(5.0, False)]
+    assert "didn't start" in c.take_event()
+
+
+def test_remaining_time():
+    c = d.DispenseController()
+    c.start(d.TIME, on_time=30)
+    assert c.remaining(0, 0) is None  # not dispensing yet
+    c.tick(10, 0, True)
+    assert c.remaining(25, 0) == 15
+    v = d.DispenseController()
+    v.start(d.VOLUME, volume=10)
+    v.tick(0, 100, True)
+    assert v.remaining(1, 104, flow_per_second=2) == 3
+    assert v.remaining(1, 104) is None  # flow unknown
+
+
+def test_window_drops_the_program_when_stopped_on_the_touchscreen(connected, monkeypatch):
+    window, pump = connected
+    set_program(window, window.mode_radio1, flow=5, on_time=60, off_time=5, batch=0)
+    window.cmd_start()
+    step(window, pump, 0.0, monkeypatch, status=0b10000011)
+    step(window, pump, 5.0, monkeypatch, status=0b10000011)
+    for t in (6.0, 6.3, 6.6):
+        step(window, pump, t, monkeypatch, status=0b10000001)  # stopped, remote still on
+    assert not window.dispense.active
+    assert not window.output_data[0] & 1
+    step(window, pump, 200.0, monkeypatch, status=0b10000001)
+    assert not window.output_data[0] & 1  # never restarted
+    assert "stopped outside the app" in window.console_textbox.toPlainText()

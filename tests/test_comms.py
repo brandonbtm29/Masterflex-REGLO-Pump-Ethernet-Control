@@ -91,3 +91,41 @@ def test_connect_runs_the_real_poll_thread(window, qapp, monkeypatch):
     finally:
         window.toggle_connection()  # disconnect; the thread exits on its next cycle
         time.sleep(0.25)
+
+
+def test_disconnect_while_running_stops_the_pump_and_logs_the_end(connected):
+    window, pump = connected
+    window.flow_entry.setText("5")
+    window.cmd_start()
+    window._poll_once()
+    window.update_dashboard()  # sees the pump running: START logged
+    assert window.run_log_active
+    pump.writes.clear()
+
+    window.disconnect()
+    assert pump.writes and pump.writes[0][0] & 1 == 0  # Stop sent before closing
+    assert not window.connected and not window.run_log_active
+    history = [window.run_log_list.item(i).text() for i in range(window.run_log_list.count())]
+    assert "[ END ]" in history[0] and "app disconnected during the run" in history[0]
+    assert "Stopped the pump before disconnecting" in console(window)
+
+
+def test_failed_connect_does_not_freeze_or_connect(window, qapp, monkeypatch):
+    import time
+
+    def refuse(target):
+        raise OSError("No route to host")
+
+    monkeypatch.setattr("pump_gui.PumpDriver", refuse)
+    window.ip_entry.setText("192.0.2.10")
+    start = time.monotonic()
+    window.connect()
+    assert time.monotonic() - start < 0.5  # returns at once; the attempt runs in a thread
+    assert window.connect_btn.text() == "Connecting..." and not window.connect_btn.isEnabled()
+    deadline = time.monotonic() + 2
+    while window._connecting and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.02)
+    assert not window.connected and window.connect_btn.isEnabled()
+    assert window.connect_btn.text() == "Connect"
+    assert "No route to host" in console(window)

@@ -131,6 +131,7 @@ class SignalManager(QObject):
     discovery_found_signal = pyqtSignal(str)
     discovery_failed_signal = pyqtSignal(str)
     link_state_signal = pyqtSignal(bool, str)  # (ok, error) when pump communication fails or recovers
+    connect_result_signal = pyqtSignal(object, str)  # (driver or None, error) from the connect thread
 
 
 class SettingsDialog(QDialog):
@@ -309,6 +310,15 @@ class MasterflexPumpGUI(QMainWindow):
         self.polling = False
         self.link_ok = True  # False while the pump isn't answering (see _report_comm)
         self._comm_lock = threading.Lock()
+        self._connecting = False
+        # Guards output_data and the dispense program, which the UI and the comms thread share.
+        self.ctrl_lock = threading.RLock()
+
+        # Run tracking (updated by the dashboard)
+        self.pump_running = False
+        self.run_log_active = False
+        self._last_cum_vol = 0.0
+        self._flow_limits = None  # (min, max) the pump reports for the current unit
 
         # Data arrays
         self.output_data = bytearray(proto.OUTPUT_SIZE)
@@ -329,6 +339,7 @@ class MasterflexPumpGUI(QMainWindow):
         self.signals.discovery_found_signal.connect(self.set_ip_entry)
         self.signals.discovery_failed_signal.connect(self.reset_discover_btn)
         self.signals.link_state_signal.connect(self.on_link_state)
+        self.signals.connect_result_signal.connect(self.on_connect_result)
 
         self.setup_ui()
 
@@ -878,8 +889,7 @@ class MasterflexPumpGUI(QMainWindow):
 
     def closeEvent(self, event):
         self.save_all_settings()
-        if self.connected:
-            self.toggle_connection()
+        self.disconnect(reason="closed")
         event.accept()
 
     def save_settings(self, max_rpm):
@@ -896,8 +906,7 @@ class MasterflexPumpGUI(QMainWindow):
 
     def cmd_restart_app(self):
         self.save_all_settings()
-        if self.connected:
-            self.toggle_connection()
+        self.disconnect(reason="restarted")
         from PyQt6.QtCore import QProcess
 
         QProcess.startDetached(sys.executable, sys.argv)
@@ -948,40 +957,90 @@ class MasterflexPumpGUI(QMainWindow):
         self.discover_btn.setEnabled(True)
         self.discover_btn.setText("Search Network")
 
+    # --- Connecting -------------------------------------------------------------------
+
     def toggle_connection(self):
         if self.connected:
-            self.polling = False
-            self.connected = False
-            self.status_label.setText("Status: Disconnected")
-            self.status_label.setStyleSheet("color: red; font-weight: bold;")
-            self.connect_btn.setText("Connect")
-            if self.plc:
-                try:
-                    self.plc.close()
-                except:
-                    pass
-            self.dispense.cancel()
-            self.log_msg("Disconnected.")
+            self.disconnect()
         else:
-            target = self.ip_entry.text().strip()
-            if not target:
-                self.log_error("Please enter a connection target.")
-                return
+            self.connect()
+
+    def connect(self):
+        """Open the connection in a background thread so the window never freezes."""
+        if self._connecting or self.connected:
+            return
+        target = self.ip_entry.text().strip()
+        if not target:
+            self.log_error("Please enter a connection target.")
+            return
+        if not PYCOMM3_AVAILABLE:
+            self.log_error("pycomm3 missing! Please run: pip install pycomm3")
+            return
+        self._connecting = True
+        self.connect_btn.setEnabled(False)
+        self.connect_btn.setText("Connecting...")
+        self.log_msg(f"Connecting to {target}...")
+        threading.Thread(target=self._connect_worker, args=(target,), daemon=True).start()
+
+    def _connect_worker(self, target):
+        try:
+            plc = PumpDriver(target)
+            plc.open()
+        except Exception as e:
+            self.signals.connect_result_signal.emit(None, str(e) or type(e).__name__)
+            return
+        self.signals.connect_result_signal.emit(plc, "")
+
+    def on_connect_result(self, plc, error):
+        self._connecting = False
+        self.connect_btn.setEnabled(True)
+        if plc is None:
+            self.connect_btn.setText("Connect")
+            self.log_error(f"EtherNet/IP Error: {error}")
+            return
+        self.plc = plc
+        self.link_ok = True
+        self.connected = True
+        self.status_label.setText("Status: Connected (IP)")
+        self.status_label.setStyleSheet("color: green; font-weight: bold;")
+        self.connect_btn.setText("Disconnect")
+        self.log_msg("EtherNet/IP Connected successfully.")
+        self.polling = True
+        threading.Thread(target=self.poll_pump_data, daemon=True).start()
+
+    def disconnect(self, reason="disconnected"):
+        """Stop the pump if it's running, log the end of the run, then close the connection."""
+        if not self.connected:
+            return
+        with self.ctrl_lock:
+            was_on = proto.get_bit(self.output_data, proto.RUN)
+            self.dispense.cancel()
+            proto.set_bit(self.output_data, proto.RUN, False)
+        if was_on or self.pump_running:
+            error = self._send_output()  # tell the pump now, while the link is still open
+            if error:
+                self.log_error(
+                    f"Couldn't send Stop before disconnecting ({error}). "
+                    "In remote mode the pump stops by itself."
+                )
+            else:
+                self.log_msg("Stopped the pump before disconnecting.")
+        self.polling = False
+        self.connected = False
+        if self.run_log_active:
+            self.run_log_active = False
+            self.log_finished_run(self._last_cum_vol, note=f"app {reason} during the run")
+        self.pump_running = False
+        self.status_label.setText("Status: Disconnected")
+        self.status_label.setStyleSheet("color: red; font-weight: bold;")
+        self.connect_btn.setText("Connect")
+        if self.plc:
             try:
-                self.plc = PumpDriver(target)
-                self.plc.open()
-                self.connected = True
-                self.link_ok = True
-
-                self.status_label.setText("Status: Connected (IP)")
-                self.status_label.setStyleSheet("color: green; font-weight: bold;")
-                self.connect_btn.setText("Disconnect")
-                self.log_msg("EtherNet/IP Connected successfully.")
-
-                self.polling = True
-                threading.Thread(target=self.poll_pump_data, daemon=True).start()
-            except Exception as e:
-                self.log_error(f"EtherNet/IP Error: {e}")
+                with self.plc_lock:
+                    self.plc.close()
+            except Exception:
+                pass
+        self.log_msg("Disconnected.")
 
     def cmd_discover(self):
         if not PYCOMM3_AVAILABLE:
@@ -1024,43 +1083,47 @@ class MasterflexPumpGUI(QMainWindow):
         self.flow_entry.setText(f"{value / 100:.2f}")
 
     def cmd_toggle_start_stop(self):
-        if getattr(self, "pump_running", False):
+        if self.pump_running or self.dispense.active:
             self.cmd_stop()
         else:
             self.cmd_start()
 
     def cmd_start(self):
-        if not self.cmd_apply_params() or not self._arm_dispense():
+        params = self.cmd_apply_params()
+        if params is None or not self._arm_dispense(params):
             return
-        self.output_data[0] |= 0b00000001
+        with self.ctrl_lock:
+            proto.set_bit(self.output_data, proto.RUN, True)
         self.write_output_data()
         self.log_msg("Command: START")
 
-    def _arm_dispense(self):
+    def _arm_dispense(self, params):
         """Set up the software Time/Volume program for the selected mode. False if it can't run."""
-        self.dispense.cancel()
         mode = self.mode_group.checkedId()
-        if mode not in (dispense.TIME, dispense.VOLUME):
-            return True
-        try:
-            params = dict(
-                on_time=float(self.on_time_entry.text()),
-                volume=float(self.volume_entry.text()),
-                off_time=float(self.off_time_entry.text()),
-                batch_total=int(self.batch_entry.text()),
-            )
-            self.dispense.start(mode, **params)
-        except ValueError as e:
-            self.log_error(f"Not started: {e}")
-            return False
+        with self.ctrl_lock:
+            self.dispense.cancel()
+            if mode not in (dispense.TIME, dispense.VOLUME):
+                return True
+            try:
+                self.dispense.start(
+                    mode,
+                    on_time=params["on_time"],
+                    volume=params["volume"],
+                    off_time=params["off_time"],
+                    batch_total=params["batch"],
+                )
+            except ValueError as e:
+                self.log_error(f"Not started: {e}")
+                return False
         what = f"{params['on_time']:g} s" if mode == dispense.TIME else f"{params['volume']:g} per dispense"
-        repeats = params["batch_total"] or "unlimited"
+        repeats = params["batch"] or "unlimited"
         self.log_msg(f"Program: {what}, {params['off_time']:g} s pause, {repeats} dispense(s).")
         return True
 
     def cmd_stop(self):
-        self.dispense.cancel()
-        self.output_data[0] &= ~0b00000001
+        with self.ctrl_lock:
+            self.dispense.cancel()
+            proto.set_bit(self.output_data, proto.RUN, False)
         self.write_output_data()
         self.log_msg("Command: STOP")
 
@@ -1075,12 +1138,14 @@ class MasterflexPumpGUI(QMainWindow):
 
     def _trigger_falling_edge(self, bit_pos, log_msg):
         # 1-to-0 transition: Set to 1, hold for 500ms, then drop to 0 to trigger falling edge.
-        self.output_data[0] |= 1 << bit_pos
+        with self.ctrl_lock:
+            proto.set_bit(self.output_data, bit_pos, True)
         self.write_output_data()
 
         def finish_transition():
             if self.connected:
-                self.output_data[0] &= ~(1 << bit_pos)
+                with self.ctrl_lock:
+                    proto.set_bit(self.output_data, bit_pos, False)
                 self.write_output_data()
                 if log_msg:
                     self.log_msg(log_msg)
@@ -1088,54 +1153,88 @@ class MasterflexPumpGUI(QMainWindow):
         QTimer.singleShot(500, finish_transition)
 
     def cmd_remote_toggle(self):
-        self._trigger_falling_edge(2, "Command: TOGGLE REMOTE CONTROL")
+        self._trigger_falling_edge(proto.TOGGLE_REMOTE, "Command: TOGGLE REMOTE CONTROL")
 
     def cmd_reset_cumulative(self):
-        self._trigger_falling_edge(3, "Command: RESET CUMULATIVE VOL")
+        self._trigger_falling_edge(proto.CLEAR_VOLUME, "Command: RESET CUMULATIVE VOL")
 
     def cmd_reset_vol(self):
         self.cmd_reset_cumulative()
 
     def cmd_reset_batch(self):
-        if not self.dispense.active:
-            self.dispense.cancel()  # show the drive's own count again
-        self._trigger_falling_edge(1, "Command: RESET BATCH / DISPENSE")
+        with self.ctrl_lock:
+            if not self.dispense.active:
+                self.dispense.cancel()  # show the drive's own count again
+        self._trigger_falling_edge(proto.RESET_DISPENSE, "Command: RESET BATCH / DISPENSE")
 
-    def cmd_apply_params(self):
+    def _read_parameters(self):
+        """Parse and check the parameter boxes. Returns a dict, or None after logging why not."""
         try:
-            flow_val = float(self.flow_entry.text())
-            vol_val = float(self.volume_entry.text())
-            on_val = float(self.on_time_entry.text())
-            off_val = float(self.off_time_entry.text())
-            batch_val = int(self.batch_entry.text())
-
-            was_running = False
-            if self.connected and (self.output_data[0] & 0b00000001):
-                was_running = True
-                self._safe_stop()
-
-            # The drive stays in continuous mode; Time and Volume run in software (dispense.py).
-            proto.pack_parameters(
-                self.output_data,
-                flow=flow_val,
-                volume=vol_val,
-                on_time=on_val,
-                off_time=off_val,
-                batch=batch_val,
+            params = dict(
+                flow=float(self.flow_entry.text()),
+                volume=float(self.volume_entry.text()),
+                on_time=float(self.on_time_entry.text()),
+                off_time=float(self.off_time_entry.text()),
+                batch=int(self.batch_entry.text()),
             )
-
-            self.write_output_data()
-
-            if was_running and self._arm_dispense():
-                time.sleep(0.1)
-                self.output_data[0] |= 0b00000001
-                self.write_output_data()
-
-            self.log_msg("Parameters Applied (EtherNet/IP)")
-            return True
         except ValueError:
             self.log_error("Invalid parameter entered. Check your numbers.")
-            return False
+            return None
+        problems = []
+        flow = params["flow"]
+        if flow <= 0:
+            problems.append("Flow rate must be above 0.")
+        elif self._flow_limits:
+            lo, hi = self._flow_limits
+            if not lo - 0.005 <= flow <= hi + 0.005:
+                unit = self.unit_menu.currentText()
+                problems.append(
+                    f"Flow rate {flow:g} is outside the pump's calibrated range ({lo:.2f} to {hi:.2f} {unit})."
+                )
+        for key, label in (
+            ("volume", "Dispense Volume"),
+            ("on_time", "On Time"),
+            ("off_time", "Off/Interval"),
+        ):
+            if params[key] < 0:
+                problems.append(f"{label} can't be negative.")
+        if params["batch"] < 0:
+            problems.append("Batch Total can't be negative (0 means repeat until stopped).")
+        if problems:
+            self.log_error("Parameters not applied. " + " ".join(problems))
+            return None
+        return params
+
+    def cmd_apply_params(self):
+        """Send the parameters to the pump. Returns them as a dict, or None if they're invalid."""
+        params = self._read_parameters()
+        if params is None:
+            return None
+
+        was_running = self.connected and proto.get_bit(self.output_data, proto.RUN)
+        if was_running:
+            self._safe_stop()
+
+        # The drive stays in continuous mode; Time and Volume run in software (dispense.py).
+        with self.ctrl_lock:
+            proto.pack_parameters(
+                self.output_data,
+                flow=params["flow"],
+                volume=params["volume"],
+                on_time=params["on_time"],
+                off_time=params["off_time"],
+                batch=params["batch"],
+            )
+        self.write_output_data()
+
+        if was_running and self._arm_dispense(params):
+            time.sleep(0.1)
+            with self.ctrl_lock:
+                proto.set_bit(self.output_data, proto.RUN, True)
+            self.write_output_data()
+
+        self.log_msg("Parameters Applied (EtherNet/IP)")
+        return params
 
     def cmd_open_log_folder(self):
         try:
@@ -1363,7 +1462,7 @@ class MasterflexPumpGUI(QMainWindow):
 
         self.write_run_log(ui_msg, csv_row, hidden_csv_row)
 
-    def log_finished_run(self, final_vol):
+    def log_finished_run(self, final_vol, note=""):
         vol_dispensed = final_vol - getattr(self, "_run_start_vol", final_vol)
         duration_sec = time.time() - getattr(self, "_run_start_time", time.time())
         mins, secs = divmod(int(duration_sec), 60)
@@ -1376,16 +1475,13 @@ class MasterflexPumpGUI(QMainWindow):
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         vol_unit = unit_str.split("/")[0] if "/" in unit_str else unit_str
 
-        ui_msg = f"[{timestamp}] [ END ] Mode: {mode_str} | Flow: {set_flow} {unit_str} | Dispensed: {vol_dispensed:.4f} {vol_unit} | Duration: {int(mins)}m {int(secs)}s"
+        info = f"Dispensed: {vol_dispensed:.4f} {vol_unit}; Duration: {int(mins)}m {int(secs)}s"
+        if note:
+            info += f"; {note}"
+        ui_msg = f"[{timestamp}] [ END ] Mode: {mode_str} | Flow: {set_flow} {unit_str} | {info.replace('; ', ' | ')}"
 
         csv_row = None
-        hidden_csv_row = [
-            timestamp,
-            "END",
-            mode_str,
-            f"{set_flow} {unit_str}",
-            f"Dispensed: {vol_dispensed:.4f} {vol_unit}; Duration: {int(mins)}m {int(secs)}s",
-        ]
+        hidden_csv_row = [timestamp, "END", mode_str, f"{set_flow} {unit_str}", info]
         if hasattr(self, "get_token_order"):
             hidden_csv_row.extend(
                 [self.token_inputs[k].text() for k in self.get_token_order() if k in self.token_inputs]
@@ -1401,16 +1497,16 @@ class MasterflexPumpGUI(QMainWindow):
     def cmd_update_direction(self):
         if self.connected:
             self._safe_stop()
-        if self.dir_checkbox.isChecked():
-            self.output_data[0] |= 0b01000000
-            self.log_msg("Direction set to: CCW")
-        else:
-            self.output_data[0] &= ~0b01000000
-            self.log_msg("Direction set to: CW")
+        ccw = self.dir_checkbox.isChecked()
+        with self.ctrl_lock:
+            proto.set_bit(self.output_data, proto.DIRECTION_CCW, ccw)
+        self.log_msg(f"Direction set to: {'CCW' if ccw else 'CW'}")
         self.write_output_data()
 
     def cmd_update_unit(self, choice):
-        self.output_data[6] = proto.unit_code(choice)
+        with self.ctrl_lock:
+            self.output_data[6] = proto.unit_code(choice)
+        self._flow_limits = None  # the pump reports new limits for the new unit
         self.write_output_data()
         self.log_msg(f"Unit updated to: {choice}")
         self.update_parameter_visibility()
@@ -1457,7 +1553,8 @@ class MasterflexPumpGUI(QMainWindow):
             self._safe_stop()
 
         # The drive stays in continuous mode; Time and Volume run in software (dispense.py).
-        self.output_data[4] = proto.CONTINUOUS
+        with self.ctrl_lock:
+            self.output_data[4] = proto.CONTINUOUS
 
         if self.connected:
             self.write_output_data()
@@ -1470,6 +1567,8 @@ class MasterflexPumpGUI(QMainWindow):
 
     def _send_output(self):
         """Write the 28-byte output assembly (instance 112). Returns "" or an error message."""
+        with self.ctrl_lock:
+            payload = bytes(self.output_data)
         try:
             with self.plc_lock:
                 tag = self.plc.generic_message(
@@ -1477,7 +1576,7 @@ class MasterflexPumpGUI(QMainWindow):
                     class_code=b"\x04",
                     instance=proto.OUTPUT_INSTANCE,
                     attribute=b"\x03",
-                    request_data=bytes(self.output_data),
+                    request_data=payload,
                 )
         except Exception as e:
             return f"write failed: {e}"
@@ -1531,9 +1630,25 @@ class MasterflexPumpGUI(QMainWindow):
         if error:
             self._report_comm(error)
 
+    def _run_program(self):
+        """Advance a Time/Volume program from the latest status. Runs in the comms thread,
+        so starts and stops don't depend on the window being responsive."""
+        with self.ctrl_lock:
+            if not self.dispense.active:
+                return
+            st = proto.decode_status(self.input_data)
+            want = self.dispense.tick(time.monotonic(), st.cum_volume, st.moving)
+            if want is not None:
+                proto.set_bit(self.output_data, proto.RUN, want)
+            event = self.dispense.take_event()
+        if event:
+            (self.log_msg if event.startswith("Program finished") else self.log_error)(event)
+
     def _poll_once(self):
-        """One watchdog cycle: read the status, then re-send the full output block."""
+        """One watchdog cycle: read the status, run the program, re-send the full output block."""
         read_error = self._read_input()
+        if not read_error:
+            self._run_program()
         write_error = self._send_output()
         self._report_comm(read_error or write_error)
 
@@ -1586,39 +1701,37 @@ class MasterflexPumpGUI(QMainWindow):
             "color: green; font-weight: bold;" if status_ok else "color: red; font-weight: bold;"
         )
 
-        if self.dispense.active:
-            want = self.dispense.tick(time.monotonic(), cum_vol, is_running or dispense_running)
-            if want is not None:
-                if want:
-                    self.output_data[0] |= 0b00000001
-                else:
-                    self.output_data[0] &= ~0b00000001
-                self.write_output_data()
-                if self.dispense.state == dispense.DONE:
-                    self.log_msg(f"Program finished: {self.dispense.progress()} dispenses.")
+        self._last_cum_vol = cum_vol
+        if max_flow > min_flow:
+            self._flow_limits = (min_flow, max_flow)
+
+        if is_running or dispense_running or self.dispense.active:
+            self.start_stop_btn.setText("Stop / Pause")
+            self.start_stop_btn.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold;")
+        else:
+            self.start_stop_btn.setText("Start / Run")
+            self.start_stop_btn.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
 
         if is_running or dispense_running:
             self.pump_running = True
-            self.start_stop_btn.setText("Stop / Pause")
-            self.start_stop_btn.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold;")
             self.running_indicator.setText("● Pump Running")
             self.running_indicator.setStyleSheet("color: green; font-weight: bold;")
-            if not getattr(self, "run_log_active", False):
+            if not self.run_log_active:
                 self.run_log_active = True
                 self._run_start_time = time.time()
                 self._run_start_vol = cum_vol
                 self.log_started_run()
         else:
             self.pump_running = False
-            self.start_stop_btn.setText("Start / Run")
-            self.start_stop_btn.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
             self.running_indicator.setText("● Pump Stopped")
             self.running_indicator.setStyleSheet("color: red; font-weight: bold;")
-            if getattr(self, "run_log_active", False):
+            if self.run_log_active:
                 self.run_log_active = False
                 self.log_finished_run(cum_vol)
-                if self.connected:
-                    if self.output_data[0] & 0b00000001:
+                # Stopped from the touchscreen while the app still asks it to run: match it.
+                # (A running program notices this itself, in _run_program.)
+                if self.connected and not self.dispense.active:
+                    if proto.get_bit(self.output_data, proto.RUN):
                         QTimer.singleShot(50, self.cmd_stop)
 
         self.remote_indicator.setText("Local Mode" if local_mode else "Remote Mode")
