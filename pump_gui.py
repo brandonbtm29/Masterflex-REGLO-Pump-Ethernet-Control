@@ -26,6 +26,7 @@ if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 import dispense
 import protocol as proto
+import runlog
 import settings_location
 
 APP_DIR = settings_location.app_folder(script_dir)
@@ -36,7 +37,6 @@ os.makedirs(os.path.join(DATA_DIR, "Data"), exist_ok=True)
 RUN_LOG = os.path.join(DATA_DIR, "Data", "run_log.csv")
 RUN_LOG_BACKUP = os.path.join(DATA_DIR, "Data", "run_log_backup.csv")
 
-import csv
 import json
 import shutil
 import threading
@@ -836,6 +836,11 @@ class MasterflexPumpGUI(QMainWindow):
             if name in self.token_inputs:
                 QMessageBox.warning(self, "Warning", "Token already exists!")
                 return
+            if name.casefold() in {col.casefold() for col in runlog.FIXED}:
+                QMessageBox.warning(
+                    self, "Warning", f"'{name}' is already a run log column. Pick another name."
+                )
+                return
             self.add_custom_token_ui(name, "")
 
     def _sync_flow_rate_token(self, text):
@@ -1272,230 +1277,142 @@ class MasterflexPumpGUI(QMainWindow):
         except Exception as e:
             self.log_error(f"Failed to open log file: {e}")
 
-    def write_run_log(self, ui_msg, csv_row=None, hidden_csv_row=None):
-        item = QListWidgetItem(ui_msg)
-        actual_row = csv_row or hidden_csv_row
+    # --- Run log ----------------------------------------------------------------------
+    # Every START/END goes into the history list and run_log_backup.csv; it also goes into
+    # run_log.csv when Auto-Log is on, or later with "Save Selected Logs". Rows are dicts
+    # (runlog.FIXED columns + one per metadata token), so columns stay aligned in the files.
 
-        if actual_row:
-            item.setData(Qt.ItemDataRole.UserRole, actual_row)
+    def _token_values(self):
+        values = {}
+        for name in self.get_token_order():
+            if name in self.token_inputs:
+                column = f"{name} (token)" if name in runlog.FIXED else name
+                values[column] = self.token_inputs[name].text()
+        return values
 
-        if not csv_row and hidden_csv_row:
-            item.setForeground(QColor("red"))
-        else:
-            item.setForeground(QColor("white"))
+    @staticmethod
+    def _history_text(row):
+        event = row.get("Event", "")
+        event_str = event if len(event) >= 5 else event.center(5)
+        text = f"[{row.get('Date/Time', '')}] [{event_str}] Mode: {row.get('Mode', '')} | Flow: {row.get('Flow Rate', '')}"
+        if row.get("Other Info"):
+            text += " | " + row["Other Info"].replace("; ", " | ")
+        return text
 
+    def _add_history_item(self, row, saved):
+        item = QListWidgetItem(self._history_text(row) + ("" if saved else " (Not Saved to CSV)"))
+        item.setData(Qt.ItemDataRole.UserRole, row)
+        item.setForeground(QColor("white") if saved else QColor("red"))
         self.run_log_list.insertItem(0, item)
+
+    def write_run_log(self, row):
+        save = self.auto_log_cb.isChecked()
+        self._add_history_item(row, save)
         self.run_log_list.scrollToTop()
-
-        if actual_row:
+        try:
+            runlog.append(RUN_LOG_BACKUP, row)
+        except Exception as e:
+            self.log_error(f"Failed to write backup CSV: {e}")
+        if save:
             try:
-                file_exists = os.path.exists(RUN_LOG_BACKUP)
-                with open(RUN_LOG_BACKUP, "a", newline="", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    if not file_exists:
-                        token_keys = self.get_token_order() if hasattr(self, "get_token_order") else []
-                        writer.writerow(
-                            ["Date/Time", "Event", "Mode", "Flow Rate", "Other Info"] + token_keys
-                        )
-                    writer.writerow(actual_row)
-            except Exception as e:
-                self.log_error(f"Failed to write backup CSV: {e}")
-
-        if csv_row:
-            try:
-                file_exists = os.path.exists(RUN_LOG)
-                with open(RUN_LOG, "a", newline="", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    if not file_exists:
-                        token_keys = self.get_token_order() if hasattr(self, "get_token_order") else []
-                        writer.writerow(
-                            ["Date/Time", "Event", "Mode", "Flow Rate", "Other Info"] + token_keys
-                        )
-                    writer.writerow(csv_row)
+                runlog.append(RUN_LOG, row)
             except Exception as e:
                 self.log_error(f"Failed to write to CSV: {e}")
 
     def cmd_save_selected_logs(self):
-        selected_items = self.run_log_list.selectedItems()
-        if not selected_items:
+        selected = self.run_log_list.selectedItems()
+        if not selected:
             self.log_msg_ui("No logs selected to save.")
             return
-
-        saved_count = 0
+        # oldest first, so the file stays in time order
+        selected.sort(key=lambda item: self.run_log_list.row(item), reverse=True)
+        rows = [item.data(Qt.ItemDataRole.UserRole) for item in selected]
+        rows = [row for row in rows if row]
         try:
-            file_exists = os.path.exists(RUN_LOG)
-            with open(RUN_LOG, "a", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not file_exists:
-                    token_keys = self.get_token_order() if hasattr(self, "get_token_order") else []
-                    writer.writerow(["Date/Time", "Event", "Mode", "Flow Rate", "Other Info"] + token_keys)
-
-                for item in selected_items:
-                    row_data = item.data(Qt.ItemDataRole.UserRole)
-                    if row_data:
-                        writer.writerow(row_data)
-                        saved_count += 1
-                        text = item.text()
-                        if text.endswith(" (Not Saved to CSV)"):
-                            item.setText(text.replace(" (Not Saved to CSV)", " (Saved manually)"))
-                            item.setForeground(QColor("white"))
-
-            self.log_msg_ui(f"Saved {saved_count} selected logs to CSV.")
-            self.run_log_list.clearSelection()
+            runlog.append(RUN_LOG, rows)
         except Exception as e:
             self.log_error(f"Failed to write selected logs to CSV: {e}")
+            return
+        for item in selected:
+            if item.text().endswith(" (Not Saved to CSV)"):
+                item.setText(item.text().replace(" (Not Saved to CSV)", " (Saved manually)"))
+                item.setForeground(QColor("white"))
+        self.log_msg_ui(f"Saved {len(rows)} selected logs to CSV.")
+        self.run_log_list.clearSelection()
+
+    def _confirm(self, title, text):
+        """Ask a yes/no question (tests replace this)."""
+        answer = QMessageBox.question(self, title, text)
+        return answer == QMessageBox.StandardButton.Yes
 
     def cmd_delete_selected_logs(self):
-        selected_items = self.run_log_list.selectedItems()
-        if not selected_items:
+        selected = self.run_log_list.selectedItems()
+        if not selected:
             self.log_msg_ui("No logs selected to delete.")
             return
-
-        for item in selected_items:
+        if not self._confirm(
+            "Delete runs",
+            f"Remove {len(selected)} run(s) from the history and from run_log_backup.csv?\n\n"
+            "Rows already saved in run_log.csv are kept. The previous backup file is kept as "
+            "run_log_backup.csv.bak.",
+        ):
+            return
+        for item in selected:
             self.run_log_list.takeItem(self.run_log_list.row(item))
-
         self.rewrite_backup_log()
-        self.log_msg_ui(f"Deleted {len(selected_items)} selected logs.")
+        self.log_msg_ui(f"Deleted {len(selected)} selected logs.")
 
     def rewrite_backup_log(self):
+        # The list shows newest first; the file is kept oldest first.
+        rows = [
+            self.run_log_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.run_log_list.count())
+        ]
         try:
-            with open(RUN_LOG_BACKUP, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                token_keys = self.get_token_order() if hasattr(self, "get_token_order") else []
-                writer.writerow(["Date/Time", "Event", "Mode", "Flow Rate", "Other Info"] + token_keys)
-                for i in range(self.run_log_list.count()):
-                    item = self.run_log_list.item(i)
-                    row_data = item.data(Qt.ItemDataRole.UserRole)
-                    if row_data:
-                        writer.writerow(row_data)
+            runlog.rewrite(RUN_LOG_BACKUP, [row for row in reversed(rows) if row])
         except Exception as e:
             self.log_error(f"Failed to rewrite backup CSV: {e}")
 
     def load_run_logs(self):
-        from datetime import datetime
+        saved = set()
+        try:
+            saved = {runlog.key(row) for row in runlog.read(RUN_LOG)[1]}
+        except Exception as e:
+            self.log_error(f"Failed to read run_log.csv: {e}")
+        try:
+            rows = runlog.read(RUN_LOG_BACKUP)[1]
+        except Exception as e:
+            self.log_error(f"Failed to load backup logs: {e}")
+            return
+        for row in rows:
+            self._add_history_item(row, runlog.key(row) in saved)
+        self.run_log_list.scrollToTop()
 
-        def normalize_row(row):
-            if not row or len(row) < 4:
-                return tuple(row)
-            ts = row[0]
-            dt = None
-            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M", "%m/%d/%Y %H:%M:%S"):
-                try:
-                    dt = datetime.strptime(ts, fmt)
-                    break
-                except:
-                    pass
-            if dt:
-                norm_ts = dt.strftime("%Y-%m-%d %H:%M")
-                return (norm_ts, row[1], row[2], row[3])
-            return tuple(row[:4])
-
-        saved_rows = set()
-        if os.path.exists(RUN_LOG):
-            try:
-                with open(RUN_LOG, encoding="utf-8") as f:
-                    reader = csv.reader(f)
-                    next(reader, None)
-                    for row in reader:
-                        if row:
-                            saved_rows.add(normalize_row(row))
-            except:
-                pass
-
-        if os.path.exists(RUN_LOG_BACKUP):
-            try:
-                with open(RUN_LOG_BACKUP, encoding="utf-8") as f:
-                    reader = csv.reader(f)
-                    next(reader, None)
-                    for row in reader:
-                        if not row:
-                            continue
-
-                        timestamp, event, mode_str, flow_info = row[0], row[1], row[2], row[3]
-                        other_info = row[4] if len(row) > 4 else ""
-
-                        event_str = event if len(event) >= 5 else event.center(5)
-                        ui_msg = (
-                            f"[{timestamp}] [{event_str}] Mode: {mode_str} | Flow: {flow_info} | {other_info}"
-                        )
-
-                        item = QListWidgetItem(ui_msg)
-                        item.setData(Qt.ItemDataRole.UserRole, row)
-
-                        if normalize_row(row) not in saved_rows:
-                            item.setText(ui_msg + " (Not Saved to CSV)")
-                            item.setForeground(QColor("red"))
-                        else:
-                            item.setForeground(QColor("white"))
-
-                        self.run_log_list.insertItem(0, item)
-                self.run_log_list.scrollToTop()
-            except Exception as e:
-                self.log_error(f"Failed to load backup logs: {e}")
+    def _run_row(self, event, info):
+        mode = self.mode_group.checkedId()
+        row = {
+            "Date/Time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+            "Event": event,
+            "Mode": ["Continuous", "Time", "Volume"][mode],
+            "Flow Rate": f"{self.flow_entry.text()} {self.unit_menu.currentText()}",
+            "Other Info": info,
+        }
+        row.update(self._token_values())
+        return row
 
     def log_started_run(self):
-        mode = self.mode_group.checkedId()
-        mode_str = ["Continuous", "Time", "Volume"][mode]
-        set_flow = self.flow_entry.text()
-        unit_str = self.unit_menu.currentText()
         notes = self.notes_entry.toPlainText().strip().replace("\n", "; ")
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-
-        notes_str = f" | Notes: {notes}" if notes else ""
-        ui_msg = f"[{timestamp}] [START] Mode: {mode_str} | Flow: {set_flow} {unit_str}{notes_str}"
-
-        csv_row = None
-        hidden_csv_row = [
-            timestamp,
-            "START",
-            mode_str,
-            f"{set_flow} {unit_str}",
-            f"Notes: {notes}" if notes else "",
-        ]
-        if hasattr(self, "get_token_order"):
-            hidden_csv_row.extend(
-                [self.token_inputs[k].text() for k in self.get_token_order() if k in self.token_inputs]
-            )
-
-        if self.auto_log_cb.isChecked():
-            csv_row = hidden_csv_row
-        else:
-            ui_msg += " (Not Saved to CSV)"
-
-        self.write_run_log(ui_msg, csv_row, hidden_csv_row)
+        self.write_run_log(self._run_row("START", f"Notes: {notes}" if notes else ""))
 
     def log_finished_run(self, final_vol, note=""):
         vol_dispensed = final_vol - self._run_start_vol
         duration_sec = time.time() - (self._run_start_time or time.time())
         self._last_run_seconds = duration_sec
         mins, secs = divmod(int(duration_sec), 60)
-
-        mode = self.mode_group.checkedId()
-        mode_str = ["Continuous", "Time", "Volume"][mode]
-        set_flow = self.flow_entry.text()
-        unit_str = self.unit_menu.currentText()
-
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        vol_unit = unit_str.split("/")[0] if "/" in unit_str else unit_str
-
-        info = f"Dispensed: {vol_dispensed:.4f} {vol_unit}; Duration: {int(mins)}m {int(secs)}s"
+        vol_unit = proto.volume_unit(self.unit_menu.currentText())
+        info = f"Dispensed: {vol_dispensed:.4f} {vol_unit}; Duration: {mins}m {secs}s"
         if note:
             info += f"; {note}"
-        ui_msg = f"[{timestamp}] [ END ] Mode: {mode_str} | Flow: {set_flow} {unit_str} | {info.replace('; ', ' | ')}"
-
-        csv_row = None
-        hidden_csv_row = [timestamp, "END", mode_str, f"{set_flow} {unit_str}", info]
-        if hasattr(self, "get_token_order"):
-            hidden_csv_row.extend(
-                [self.token_inputs[k].text() for k in self.get_token_order() if k in self.token_inputs]
-            )
-
-        if self.auto_log_cb.isChecked():
-            csv_row = hidden_csv_row
-        else:
-            ui_msg += " (Not Saved to CSV)"
-
-        self.write_run_log(ui_msg, csv_row, hidden_csv_row)
+        self.write_run_log(self._run_row("END", info))
 
     def cmd_update_direction(self):
         if self.connected:

@@ -120,3 +120,41 @@ def test_dashboard_rpm_run_time_and_head_open(connected, monkeypatch):
     window.update_dashboard()
     assert window.lbl_mon_calctime.text() == "Run Time\n1:15"
     assert "#4da3ff" in window.remote_indicator.styleSheet()  # readable on the dark theme
+
+
+def test_history_delete_asks_first_and_keeps_order(window, pump_gui, monkeypatch):
+    import runlog
+
+    for path in (pump_gui.RUN_LOG, pump_gui.RUN_LOG_BACKUP):
+        if os.path.exists(path):
+            os.remove(path)
+    window.run_log_list.clear()
+    window.log_started_run()
+    window.log_finished_run(0.0)
+    window.log_started_run()
+    assert window.run_log_list.count() == 3
+
+    monkeypatch.setattr(window, "_confirm", lambda *a: False)
+    window.run_log_list.item(0).setSelected(True)
+    window.cmd_delete_selected_logs()
+    assert window.run_log_list.count() == 3  # said no
+
+    monkeypatch.setattr(window, "_confirm", lambda *a: True)
+    window.cmd_delete_selected_logs()
+    assert window.run_log_list.count() == 2
+    events = [r["Event"] for r in runlog.read(pump_gui.RUN_LOG_BACKUP)[1]]
+    assert events == ["START", "END"]  # still oldest first
+    assert os.path.exists(pump_gui.RUN_LOG_BACKUP + ".bak")
+
+
+def test_auto_log_writes_token_columns(window, pump_gui):
+    import runlog
+
+    if os.path.exists(pump_gui.RUN_LOG):
+        os.remove(pump_gui.RUN_LOG)
+    window.auto_log_cb.setChecked(True)
+    window.token_inputs["Material"].setText("Sample media A")
+    window.log_started_run()
+    header, rows = runlog.read(pump_gui.RUN_LOG)
+    assert header[: len(runlog.FIXED)] == runlog.FIXED and "Material" in header
+    assert rows[-1]["Material"] == "Sample media A"
