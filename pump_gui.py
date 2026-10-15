@@ -26,6 +26,8 @@ import dispense
 import protocol as proto
 import runlog
 import settings_location
+import shortcuts
+import updates
 
 APP_DIR = settings_location.app_folder(script_dir)
 CONFIG_DIR = settings_location.resolve(APP_DIR, DATA_DIR)
@@ -145,11 +147,16 @@ class SignalManager(QObject):
     connect_result_signal = pyqtSignal(object, str)  # (driver or None, error) from the connect thread
 
 
+class DialogSignals(QObject):
+    update_checked = pyqtSignal(object, str)  # (Release or None, error)
+    update_done = pyqtSignal(bool, str)  # (ok, message)
+
+
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings & Documentation")
-        self.resize(500, 400)
+        self.resize(520, 440)
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 
         layout = QVBoxLayout(self)
@@ -195,11 +202,37 @@ class SettingsDialog(QDialog):
             1,
             2,
         )
-        self.restart_btn = QPushButton("Restart Application")
-        self.restart_btn.clicked.connect(parent.cmd_restart_app)
-        hw_layout.addWidget(self.restart_btn, 5, 0, 1, 2)
-
         self.tabview.addTab(hw_tab, "Hardware")
+
+        # App Tab: version, updates, desktop icon
+        self.bridge = DialogSignals(self)
+        self.bridge.update_checked.connect(self.on_update_checked)
+        self.bridge.update_done.connect(self.on_update_done)
+        app_tab = QWidget()
+        app_layout = QVBoxLayout(app_tab)
+        app_layout.addWidget(QLabel(f"<b>{APP_NAME}</b><br>Version {__version__}"))
+
+        self.update_btn = QPushButton("Check for Updates")
+        self.update_btn.setStyleSheet(
+            f"background-color: {MASTERFLEX_ORANGE}; color: white; font-weight: bold;"
+        )
+        self.update_btn.clicked.connect(self.on_check_updates)
+        app_layout.addWidget(self.update_btn)
+        self.update_status = QLabel("Checks GitHub for a newer release. Updating restarts the app.")
+        self.update_status.setWordWrap(True)
+        self.update_status.setStyleSheet("color: grey;")
+        app_layout.addWidget(self.update_status)
+
+        self.shortcut_btn = QPushButton(shortcuts.button_label())
+        self.shortcut_btn.clicked.connect(self.on_create_shortcut)
+        app_layout.addWidget(self.shortcut_btn)
+        self.shortcut_status = QLabel("Puts an icon with the pump logo on your desktop that starts this app.")
+        self.shortcut_status.setWordWrap(True)
+        self.shortcut_status.setStyleSheet("color: grey;")
+        self.shortcut_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        app_layout.addWidget(self.shortcut_status)
+        app_layout.addStretch()
+        self.tabview.addTab(app_tab, "App")
 
         # Firmware Tab
         fw_tab = QWidget()
@@ -247,6 +280,84 @@ class SettingsDialog(QDialog):
         doc_layout.addWidget(doc_lbl)
         doc_layout.addStretch()
         self.tabview.addTab(doc_tab, "Documentation")
+
+    # --- Updates ----------------------------------------------------------------------
+
+    def on_check_updates(self):
+        self.update_btn.setEnabled(False)
+        self.update_status.setText("Checking GitHub...")
+
+        def work():
+            try:
+                self.bridge.update_checked.emit(updates.latest_release(__version__), "")
+            except LookupError as e:
+                self.bridge.update_checked.emit(None, str(e))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_update_checked(self, release, error):
+        self.update_btn.setEnabled(True)
+        if release is None:
+            self.update_status.setText(error)
+            return
+        if not updates.is_newer(release.version, __version__):
+            self.update_status.setText(f"You have the latest version ({__version__}).")
+            return
+        reason = updates.can_update(script_dir)
+        if reason:
+            self.update_status.setText(f"Version {release.version} is available. {reason}")
+            if self.confirm(
+                "Update available",
+                f"Version {release.version} is available.\n\n{reason}\n\nOpen the releases page?",
+            ):
+                webbrowser.open(release.url)
+            return
+        main = self.parent()
+        if main.pump_running or main.dispense.active:
+            self.update_status.setText(f"Version {release.version} is available. Stop the pump, then update.")
+            return
+        notes = release.notes.strip()
+        if len(notes) > 1500:
+            notes = notes[:1500] + "..."
+        question = (
+            f"Version {release.version} is available (you have {__version__}).\n\n"
+            "Update now? The app will restart and reconnect from scratch."
+        )
+        if notes:
+            question += f"\n\nWhat's new:\n{notes}"
+        if not self.confirm("Update available", question):
+            self.update_status.setText(f"Version {release.version} is available.")
+            return
+        self.update_btn.setEnabled(False)
+        self.update_status.setText(f"Updating to {release.version}...")
+        threading.Thread(
+            target=lambda: self.bridge.update_done.emit(*updates.update_to(script_dir, release.tag)),
+            daemon=True,
+        ).start()
+
+    def on_update_done(self, ok, message):
+        self.update_btn.setEnabled(True)
+        self.update_status.setText(message)
+        if not ok:
+            QMessageBox.warning(self, "Update", message)
+            return
+        QMessageBox.information(self, "Update", f"{message}\n\nThe app will restart now.")
+        self.parent().cmd_restart_app()
+
+    def confirm(self, title, text):
+        return QMessageBox.question(self, title, text) == QMessageBox.StandardButton.Yes
+
+    # --- Desktop icon -------------------------------------------------------------------
+
+    def on_create_shortcut(self):
+        try:
+            path = shortcuts.create(script_dir, ASSETS)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+            self.shortcut_status.setText(f"Couldn't create it: {e}")
+            return
+        tip = " Drag it into the Dock to keep it there." if sys.platform == "darwin" else ""
+        self.shortcut_status.setText(f"Created {path}.{tip}")
+        self.parent().log_msg(f"Desktop icon created: {path}")
 
     def on_toggle_icons(self, checked):
         self.parent().config_data["use_icons"] = checked
@@ -409,11 +520,6 @@ class MasterflexPumpGUI(QMainWindow):
         self.settings_btn = QPushButton("⚙ Hardware Settings")
         self.settings_btn.clicked.connect(self.cmd_open_settings)
         top_bar_layout.addWidget(self.settings_btn)
-
-        self.restart_btn = QPushButton("Restart App")
-        self.restart_btn.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold;")
-        self.restart_btn.clicked.connect(self.cmd_restart_app)
-        top_bar_layout.addWidget(self.restart_btn)
 
         # ---- SPLIT LAYOUT ----
         split_layout = QHBoxLayout()
@@ -1070,8 +1176,8 @@ class MasterflexPumpGUI(QMainWindow):
             try:
                 with self.plc_lock:
                     self.plc.close()
-            except Exception:
-                pass
+            except Exception as e:  # the link may already be gone; nothing else to do
+                self.log_msg(f"(Closing the connection reported: {e})")
         self.log_msg("Disconnected.")
 
     def cmd_discover(self):
@@ -1443,34 +1549,21 @@ class MasterflexPumpGUI(QMainWindow):
         try:
             vol = float(self.volume_entry.text())
             flow = float(self.flow_entry.text())
-            unit = self.unit_menu.currentText()
-
-            if flow <= 0:
-                self.lbl_est_time.setText("Est. Time: --")
-                return
-
-            if "/S" in unit or "/sec" in unit:
-                time_in_sec = vol / flow
-            elif "/min" in unit:
-                time_in_sec = (vol / flow) * 60
-            elif "/hr" in unit:
-                time_in_sec = (vol / flow) * 3600
-            elif "/day" in unit:
-                time_in_sec = (vol / flow) * 86400
-            elif unit == "RPM":
-                time_in_sec = (vol / flow) * 60
-            else:
-                self.lbl_est_time.setText("Est. Time: --")
-                return
-
-            if time_in_sec < 60:
-                self.lbl_est_time.setText(f"Est. Time: {time_in_sec:.1f} sec")
-            elif time_in_sec < 3600:
-                self.lbl_est_time.setText(f"Est. Time: {time_in_sec / 60:.2f} min")
-            else:
-                self.lbl_est_time.setText(f"Est. Time: {time_in_sec / 3600:.2f} hr")
-        except:
+        except ValueError:
             self.lbl_est_time.setText("Est. Time: --")
+            return
+        unit = self.unit_menu.currentText()
+        per = 60 if unit == "RPM" else proto.unit_seconds(unit)
+        if flow <= 0 or not per:
+            self.lbl_est_time.setText("Est. Time: --")
+            return
+        seconds = vol / flow * per
+        if seconds < 60:
+            self.lbl_est_time.setText(f"Est. Time: {seconds:.1f} sec")
+        elif seconds < 3600:
+            self.lbl_est_time.setText(f"Est. Time: {seconds / 60:.2f} min")
+        else:
+            self.lbl_est_time.setText(f"Est. Time: {seconds / 3600:.2f} hr")
 
     def cmd_update_mode(self):
         mode = self.mode_group.checkedId()
@@ -1609,13 +1702,13 @@ class MasterflexPumpGUI(QMainWindow):
                 if self.flow_slider.minimum() != min_val or self.flow_slider.maximum() != max_val:
                     try:
                         intended_val = float(self.flow_entry.text()) * 100
-                    except:
+                    except ValueError:
                         intended_val = self.flow_slider.value()
                     self.flow_slider.blockSignals(True)
                     self.flow_slider.setRange(min_val, max_val)
                     self.flow_slider.setValue(int(intended_val))
                     self.flow_slider.blockSignals(False)
-        except:
+        except (ValueError, OverflowError):  # NaN/inf limits while the pump is starting up
             pass
 
         status_text = "Status OK: YES" if status_ok else "Status OK: NO"

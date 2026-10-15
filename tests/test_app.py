@@ -196,3 +196,34 @@ def test_relaunch_command_runs_this_file(pump_gui):
 def test_icons_ship_with_the_code(pump_gui):
     for name in ("pump.png", "pump.ico", "pump.icns"):
         assert os.path.getsize(os.path.join(pump_gui.ASSETS, name)) > 1000
+
+
+def test_settings_has_update_and_icon_buttons_and_no_restart(window, pump_gui, monkeypatch):
+    import updates
+
+    top_bar = [b.text() for b in window.findChildren(pump_gui.QPushButton)]
+    assert "Restart App" not in top_bar
+    dialog = pump_gui.SettingsDialog(window)
+    tabs = [dialog.tabview.tabText(i) for i in range(dialog.tabview.count())]
+    assert "App" in tabs
+    assert dialog.update_btn.text() == "Check for Updates"
+    assert dialog.shortcut_btn.text().startswith("Add ")
+
+    older = updates.Release("0.9.0", "v0.9.0", "", updates.RELEASES_URL)
+    dialog.on_update_checked(older, "")
+    assert "latest version" in dialog.update_status.text()
+
+    newer = updates.Release("9.0.0", "v9.0.0", "Big release", updates.RELEASES_URL)
+    monkeypatch.setattr(updates, "can_update", lambda root: "")
+    window.pump_running = True
+    dialog.on_update_checked(newer, "")
+    assert "Stop the pump" in dialog.update_status.text()
+
+    window.pump_running = False
+    monkeypatch.setattr(dialog, "confirm", lambda *a: False)
+    dialog.on_update_checked(newer, "")
+    assert dialog.update_status.text() == "Version 9.0.0 is available."
+
+    dialog.on_update_checked(None, "Couldn't reach GitHub. Check the internet connection.")
+    assert "Couldn't reach GitHub" in dialog.update_status.text()
+    dialog.close()

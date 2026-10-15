@@ -47,7 +47,7 @@ path = "pump_gui.py"
 # A flat, script-style app: run it from the clone. The wheel only exists so that
 # `pip install -e ".[dev]"` can install the dependencies and dev tools.
 [tool.hatch.build.targets.wheel]
-only-include = ["pump_gui.py", "dispense.py", "protocol.py", "runlog.py", "settings_location.py"]
+only-include = ["pump_gui.py", "dispense.py", "protocol.py", "runlog.py", "settings_location.py", "shortcuts.py", "updates.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -66,8 +66,10 @@ ignore = ["S101"] # asserts are fine in tests
 [tool.ruff.lint.per-file-ignores]
 # E402: imports deliberately follow the data-folder setup at the top of the file.
 # E501: long UI strings and stylesheets.
-# E722/S110/BLE: the comms loop swallows errors on purpose for now (see CHANGELOG "Known issues").
 # S603/S606/S607: opens files/folders with the OS default app, fixed arguments.
-"pump_gui.py" = ["E402", "E501", "E722", "S110", "S603", "S606", "S607"]
+"pump_gui.py" = ["E402", "E501", "S603", "S606", "S607"]
 "build_app.py" = ["S603", "S607"]
+# Launchers have to be executable (0o755, like any installed app).
+"shortcuts.py" = ["S103"]
 "scripts/*" = ["E402"]
+"tests/*" = ["S603", "S607"] # tests run git with fixed arguments
