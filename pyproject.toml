@@ -43,7 +43,7 @@ path = "pump_gui.py"
 # A flat, script-style app: run it from the clone. The wheel only exists so that
 # `pip install -e ".[dev]"` can install the dependencies and dev tools.
 [tool.hatch.build.targets.wheel]
-only-include = ["pump_gui.py", "settings_location.py"]
+only-include = ["pump_gui.py", "dispense.py", "settings_location.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

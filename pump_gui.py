@@ -24,6 +24,7 @@ os.chdir(DATA_DIR)
 # folder instead, e.g. "Settings" inside the data folder.
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
+import dispense
 import settings_location
 
 APP_DIR = settings_location.app_folder(script_dir)
@@ -361,6 +362,9 @@ class MasterflexPumpGUI(QMainWindow):
         # Data arrays
         self.output_data = bytearray(28)
         self.input_data = bytearray(56)
+
+        # Time/Volume programs run in software; the drive itself stays in continuous mode.
+        self.dispense = dispense.DispenseController()
 
         # Settings
         self.config_file = os.path.join(CONFIG_DIR, "pump_config.json")
@@ -1005,6 +1009,7 @@ class MasterflexPumpGUI(QMainWindow):
                     self.plc.close()
                 except:
                     pass
+            self.dispense.cancel()
             self.log_msg("Disconnected.")
         else:
             target = self.ip_entry.text().strip()
@@ -1074,12 +1079,36 @@ class MasterflexPumpGUI(QMainWindow):
             self.cmd_start()
 
     def cmd_start(self):
-        self.cmd_apply_params()
+        if not self.cmd_apply_params() or not self._arm_dispense():
+            return
         self.output_data[0] |= 0b00000001
         self.write_output_data()
         self.log_msg("Command: START")
 
+    def _arm_dispense(self):
+        """Set up the software Time/Volume program for the selected mode. False if it can't run."""
+        self.dispense.cancel()
+        mode = self.mode_group.checkedId()
+        if mode not in (dispense.TIME, dispense.VOLUME):
+            return True
+        try:
+            params = dict(
+                on_time=float(self.on_time_entry.text()),
+                volume=float(self.volume_entry.text()),
+                off_time=float(self.off_time_entry.text()),
+                batch_total=int(self.batch_entry.text()),
+            )
+            self.dispense.start(mode, **params)
+        except ValueError as e:
+            self.log_error(f"Not started: {e}")
+            return False
+        what = f"{params['on_time']:g} s" if mode == dispense.TIME else f"{params['volume']:g} per dispense"
+        repeats = params["batch_total"] or "unlimited"
+        self.log_msg(f"Program: {what}, {params['off_time']:g} s pause, {repeats} dispense(s).")
+        return True
+
     def cmd_stop(self):
+        self.dispense.cancel()
         self.output_data[0] &= ~0b00000001
         self.write_output_data()
         self.log_msg("Command: STOP")
@@ -1119,6 +1148,8 @@ class MasterflexPumpGUI(QMainWindow):
         self.cmd_reset_cumulative()
 
     def cmd_reset_batch(self):
+        if not self.dispense.active:
+            self.dispense.cancel()  # show the drive's own count again
         self._trigger_falling_edge(1, "Command: RESET BATCH / DISPENSE")
 
     def cmd_apply_params(self):
@@ -1140,19 +1171,21 @@ class MasterflexPumpGUI(QMainWindow):
             struct.pack_into("<f", self.output_data, 20, off_val)
             struct.pack_into("<i", self.output_data, 24, batch_val)
             # The hardware does NOT reliably handle EIP target volumes.
-            # Force hardware to always remain in Continuous mode (0) and let software handle Volume mode.
+            # Keep the drive in Continuous mode (0); Time and Volume run in software (dispense.py).
             self.output_data[4] = 0
 
             self.write_output_data()
 
-            if was_running:
+            if was_running and self._arm_dispense():
                 time.sleep(0.1)
                 self.output_data[0] |= 0b00000001
                 self.write_output_data()
 
             self.log_msg("Parameters Applied (EtherNet/IP)")
+            return True
         except ValueError:
             self.log_error("Invalid parameter entered. Check your numbers.")
+            return False
 
     def cmd_open_log_folder(self):
         try:
@@ -1479,7 +1512,7 @@ class MasterflexPumpGUI(QMainWindow):
             self._safe_stop()
 
         # The hardware does NOT reliably handle EIP target volumes.
-        # Force hardware to always remain in Continuous mode (0) and let software handle Volume mode.
+        # Keep the drive in Continuous mode (0); Time and Volume run in software (dispense.py).
         self.output_data[4] = 0
 
         if self.connected:
@@ -1611,6 +1644,17 @@ class MasterflexPumpGUI(QMainWindow):
             "color: green; font-weight: bold;" if status_ok else "color: red; font-weight: bold;"
         )
 
+        if self.dispense.active:
+            want = self.dispense.tick(time.monotonic(), cum_vol, is_running or dispense_running)
+            if want is not None:
+                if want:
+                    self.output_data[0] |= 0b00000001
+                else:
+                    self.output_data[0] &= ~0b00000001
+                self.write_output_data()
+                if self.dispense.state == dispense.DONE:
+                    self.log_msg(f"Program finished: {self.dispense.progress()} dispenses.")
+
         if is_running or dispense_running:
             self.pump_running = True
             self.start_stop_btn.setText("Stop / Pause")
@@ -1622,16 +1666,6 @@ class MasterflexPumpGUI(QMainWindow):
                 self._run_start_time = time.time()
                 self._run_start_vol = cum_vol
                 self.log_started_run()
-            else:
-                mode = self.mode_group.checkedId()
-                if mode == 2:  # Volume
-                    try:
-                        target_vol = float(self.volume_entry.text())
-                        if target_vol > 0 and (cum_vol - self._run_start_vol) >= target_vol:
-                            self.output_data[0] &= ~0b00000001
-                            self.write_output_data()
-                    except:
-                        pass
         else:
             self.pump_running = False
             self.start_stop_btn.setText("Start / Run")
@@ -1664,7 +1698,9 @@ class MasterflexPumpGUI(QMainWindow):
         self.lbl_mon_vol.setText(f"Cum. Volume\n{cum_vol:.4f} {vol_unit_str}")
         self.lbl_mon_calctime.setText(f"Calc. Time\n{calc_time:.2f} min")
 
-        if batch_current == 0 and getattr(self, "last_batch_current", 0) == 1:
+        if self.dispense.state != dispense.IDLE:
+            self.lbl_mon_batch.setText(f"Batch\n{self.dispense.progress()}")
+        elif batch_current == 0 and getattr(self, "last_batch_current", 0) == 1:
             pass
         else:
             self.lbl_mon_batch.setText(f"Batch\n{batch_current}")
