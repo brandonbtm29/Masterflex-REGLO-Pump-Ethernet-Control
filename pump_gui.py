@@ -425,6 +425,7 @@ class MasterflexPumpGUI(QMainWindow):
         self.link_ok = True  # False while the pump isn't answering (see _report_comm)
         self._comm_lock = threading.Lock()
         self._connecting = False
+        self._closing = False
         # Guards output_data and the dispense program, which the UI and the comms thread share.
         self.ctrl_lock = threading.RLock()
 
@@ -1027,6 +1028,7 @@ class MasterflexPumpGUI(QMainWindow):
         return order
 
     def closeEvent(self, event):
+        self._closing = True
         self.save_all_settings()
         self.disconnect(reason="closed")
         event.accept()
@@ -1132,6 +1134,10 @@ class MasterflexPumpGUI(QMainWindow):
 
     def on_connect_result(self, plc, error):
         self._connecting = False
+        if self._closing:  # the window closed while connecting: don't start talking to the pump
+            if plc is not None:
+                plc.close()
+            return
         self.connect_btn.setEnabled(True)
         if plc is None:
             self.connect_btn.setText("Connect")
