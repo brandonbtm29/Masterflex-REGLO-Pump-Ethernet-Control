@@ -15,10 +15,44 @@ the last, and changes that break existing settings or workflows bump the first.
   the event log says so once, the status bar shows "No response from pump", and the app logs
   again when the pump is back. The dashboard no longer acts on stale data in the meantime.
 
+- **Stops don't depend on the window.** Time/Volume programs run in the communication thread,
+  so a busy or frozen window can't delay a stop.
+- **Disconnect and closing the app stop a running pump** first, and log the end of the run
+  (before, no END row was written).
+- **A program won't restart a pump you stopped on its touchscreen**, and gives up with a
+  message if the pump doesn't start within 5 s (e.g. not in remote mode).
+- **Connecting no longer freezes the window** while a missing pump times out, including the
+  automatic connect at launch.
+- **RPM tile** showed the flow number; it now estimates speed from the pump's own maximum
+  flow, and is labelled "RPM (est.)".
+- **"Calc. Time"** was always labelled "min", even for /hr, /s and /day units. It's replaced by
+  **Run Time** (and "Last Run" when stopped), plus the time left in a dispense.
+- **Run log columns no longer shift** when metadata tokens are added, removed or reordered;
+  older files with extra values keep them as "Extra" columns.
+- **Deleting runs** asks first, keeps the previous backup file as `.bak`, and no longer reverses
+  the backup file's order.
+- **Settings** are saved in one step, and an unreadable settings file is kept and reported
+  instead of silently replaced with defaults.
+- "System & Hardware" showed as "System_Hardware".
+
+### Added
+- **⚙ → App tab**: **Check for Updates** (updates a git clone to the latest GitHub release,
+  reinstalls dependencies if needed, then restarts) and a **desktop icon** button: a
+  "Masterflex Pump" app on macOS, a shortcut on Windows, a menu entry on Linux.
+- Head-open warning in the status bar.
+- `masterflex-reglo` command after `pip install -e .`.
+- macOS (`.icns`) and multi-size Windows (`.ico`) icons in `assets/`; built apps include them.
+
 ### Changed
 - Time and Volume modes refuse to start with an On Time or volume of 0 (Volume mode with 0
-  used to run until stopped).
-- Removed an unused duplicate of the restart function (no behaviour change).
+  used to run until stopped). Apply refuses flows of 0 or below, flows outside the pump's
+  calibrated range, and negative times, volumes or batch counts.
+- **The Restart buttons are gone** (top bar and Settings). The app still restarts itself after
+  an update or a settings-folder change.
+- The Remote Mode label is light blue, readable on the dark theme.
+- `build_app.py` no longer runs pip by itself; install with `pip install -e ".[build]"`.
+- Code split into `protocol.py`, `dispense.py`, `runlog.py`, `updates.py` and `shortcuts.py`,
+  each with tests. Importing `pump_gui` no longer changes directory or creates folders.
 
 ## [1.0.0] - 2026-10-14
 

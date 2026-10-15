@@ -15,8 +15,11 @@ Machine-specific notes (clone paths, machine names) go in `CLAUDE.local.md`, whi
 - 100 ms watchdog: in Remote Control mode the full 28-byte output array must be re-sent about every 100 ms (`poll_pump_data` thread), or the motor stops.
 - Use raw CIP assembly messaging (class 0x04, attribute 0x03): instance **100** = 56-byte input (read), instance **112** = 28-byte output (write). Tag writes are not supported. Byte maps are in the README.
 
-## Code map (`pump_gui.py`, ~1,500 lines)
-`SignalManager` (Qt signals), `SettingsDialog`, `MasterflexPumpGUI(QMainWindow)`. Comms: `_read_input` / `_send_output` / `_poll_once` (background thread) report failures through `_report_comm` → `link_state_signal`. `dispense.py` (no Qt) runs Time/Volume programs in software; the drive is always kept in continuous mode (byte 4 = 0) because it locks up when switched over EtherNet/IP. `settings_location.py` is shared (identical copy in every UAkron repo). Tests use `FakePump` from `tests/conftest.py`.
+## Code map
+- `pump_gui.py` (~1,700 lines): `SettingsDialog` (tabs Hardware / App / Firmware / Documentation), `MasterflexPumpGUI(QMainWindow)`, `main()`. Importing it has no side effects; `main()` makes folders and `chdir`s.
+- Comms thread: `poll_pump_data` → `_poll_once` = `_read_input`, `_run_program` (ticks the Time/Volume program), `_send_output`. Failures go through `_report_comm` → `link_state_signal`. `output_data` and `self.dispense` are shared with the UI thread under `ctrl_lock`; always change output bits with `proto.set_bit` inside that lock. Connect runs in a thread (`connect_result_signal`); `disconnect()` sends Stop and logs END first.
+- `protocol.py` byte maps and unit helpers; `dispense.py` Time/Volume programs (the drive always stays in continuous mode, byte 4 = 0, because it locks up when switched over EtherNet/IP); `runlog.py` CSV logs keyed by column name; `updates.py` GitHub releases + git fast-forward; `shortcuts.py` desktop icon per OS; `settings_location.py` is shared (identical copy in every UAkron repo, excluded from ruff).
+- Icons in `assets/` (`pump.png` window, `pump.ico` Windows, `pump.icns` macOS). Tests use `FakePump` and the `connected` fixture from `tests/conftest.py`; no pump needed.
 
 ## Where code and data live
 - **Code** (this repo) is cloned outside SyncThing and syncs through GitHub only.

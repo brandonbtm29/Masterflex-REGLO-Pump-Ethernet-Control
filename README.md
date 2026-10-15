@@ -25,23 +25,30 @@ any REGLO with Advanced Connectivity (models 78018-10, 78018-12, 78018-40 and si
 ## Features
 
 - **Connect by IP or search the network**: type the pump's address, or let the app find it.
-- **Live dashboard**: flow rate, cumulative volume, estimated RPM, batch count, run state,
-  remote/local mode and tube size, updated 10 times a second. Drag the tiles into the order you like.
+- **Live dashboard**: flow rate, cumulative volume, run time (and time left in a dispense),
+  estimated RPM, batch progress, run state, remote/local mode, head-open warning and tube size,
+  updated 10 times a second. Drag the tiles into the order you like.
 - **Continuous, Time and Volume modes**: Time and Volume modes dispense for a set time or
   volume, pause for an interval, and repeat a set number of times (or until you stop them).
   Volume mode shows an estimated run time before you start.
-- **Flow units**: all 16 units the drive supports (mL/min, µL/hr, L/day, RPM, % and more), with
-  the slider limited to the pump's calibrated minimum and maximum.
+- **Flow units**: all 16 units the drive supports (mL/min, µL/hr, L/day, RPM, % and more). The
+  slider and Apply are limited to the pump's calibrated minimum and maximum, and impossible
+  values (0 or negative) are refused with a message.
 - **Direction, remote mode, and reset** of cumulative volume and batch count from the app.
 - **Run log**: every start and finish (time, mode, flow, volume dispensed, duration) goes into
   a run history. With Auto-Log on, runs are also written to a CSV file; otherwise you pick which
-  runs to save.
+  runs to save. Columns stay lined up when you add or remove metadata fields.
+- **Safe stops**: Disconnect or closing the app stops a running pump first and logs the end of
+  the run. A program that sees the pump stopped from its touchscreen gives up instead of
+  restarting it later.
 - **Experiment notes and metadata tokens**: free-text notes plus named fields (column, material,
   bed length, run number, or anything you add) that are written into each log row.
 - **Remembers your settings** between sessions, and can keep them in a synced folder so several
   computers share them.
 - **Firmware helper**: copies a firmware file you downloaded onto a USB drive and shows the
   update steps for the pump.
+- **One-click updates** from GitHub releases, and a **desktop icon** with the pump logo
+  (a Mac app, a Windows shortcut, or a Linux menu entry), both in ⚙ → App.
 - **Double-click launchers** for Windows and macOS.
 
 ## Quick start
@@ -68,7 +75,9 @@ On **macOS / Linux**:
 ./Launch_Mac.command        # or: .venv/bin/python pump_gui.py
 ```
 
-After this, double-click `Launch_Windows.bat` or `Launch_Mac.command` to start the app.
+After this, double-click `Launch_Windows.bat` or `Launch_Mac.command` to start the app, or
+open ⚙ → **App** and click **Add App Icon to Desktop** (macOS) / **Add Shortcut to Desktop**
+(Windows) to get an icon you can double-click or keep in the Dock or taskbar.
 
 In the app: enter the pump's IP address (or click the search button), click **Connect**, then
 **Enable Remote**. Set the flow rate and mode, click **Apply Parameters**, then **Start / Run**.
@@ -80,14 +89,16 @@ In the app: enter the pump's IP address (or click the search button), click **Co
 | Search (🔍) | Looks for EtherNet/IP devices on the local network and fills in the pump's address |
 | Connect / Disconnect | Opens or closes the EtherNet/IP connection |
 | Enable / Disable Remote | Switches the pump between touchscreen (local) and computer (remote) control |
-| Start / Run, Stop / Pause | Starts or pauses the pump. Start also applies the current parameters |
+| Start / Run, Stop / Pause | Starts or pauses the pump (or a Time/Volume program, including its pauses). Start also applies the current parameters |
 | Direction (CCW) | Counter-clockwise when ticked. Changing it stops the pump first |
 | Operation Mode | Continuous runs until stopped. Time runs for On Time seconds, Volume until the Dispense Volume is pumped; both then pause for Off/Interval seconds and repeat Batch Total times (0 = until stopped) |
 | Apply Parameters | Sends flow rate, volume, times and batch count to the pump |
 | 🔄 under the tiles | Resets cumulative volume or batch count |
-| Save Selected / Delete Selected | Writes chosen runs from the history to the CSV log, or removes them |
+| Save Selected / Delete Selected | Writes chosen runs from the history to the CSV log, or removes them from the history and `run_log_backup.csv` (after asking; the previous file is kept as `.bak`) |
 | Open Log Folder / Open Log File | Opens the data folder or the CSV log |
-| ⚙ | Settings: maximum drive RPM, icon buttons, the settings folder, firmware helper |
+| ⚙ → Hardware | Maximum drive RPM (for the RPM estimate), icon buttons, the settings folder |
+| ⚙ → App | Version, **Check for Updates**, and the desktop icon button |
+| ⚙ → Firmware | Copies a firmware file onto a USB drive and shows the pump's update steps |
 
 ## Where files go
 
@@ -98,7 +109,9 @@ The app keeps your **data** apart from the code:
   `run_log_backup.csv` (every run). To use a different folder, set the environment variable
   `UAKRON_APP_DATA_DIR` to the folder, or `UAKRON_DATA_DIR` to a parent folder (the app then
   uses `MasterFlex Pump` inside it).
-- **Settings**: `pump_config.json`, next to the app by default. In ⚙ → **Settings Folder** you
+- **Settings**: `pump_config.json`, next to the app by default. It's saved in one step, so a
+  crash can't leave half a file; if it ever can't be read, the app keeps a copy
+  (`pump_config.json.unreadable-<time>`), starts from defaults and says so in the event log. In ⚙ → **Settings Folder** you
   can move it, for example into a synced folder so several computers share the same settings.
   That choice is stored per computer in `settings_location.json`. The environment variable
   `UAKRON_SETTINGS_DIR` overrides it.
@@ -126,8 +139,19 @@ The app writes `pump_config.json` itself; you don't need to edit it.
 ## How it works
 
 `pump_gui.py` is a PyQt6 app. It uses [`pycomm3`](https://github.com/ottowayi/pycomm3) to
-send EtherNet/IP explicit messages. A background thread reads the pump's status and re-sends
-its control block every 100 ms; the window refreshes from the latest status on a 100 ms timer.
+send EtherNet/IP explicit messages. A background thread reads the pump's status, runs any
+Time/Volume program, and re-sends its control block every 100 ms; the window refreshes from
+the latest status on its own 100 ms timer, so a busy window can't delay a stop.
+
+| File | What's in it |
+|---|---|
+| `pump_gui.py` | The window, connection handling and the comms thread |
+| `protocol.py` | The byte maps below: decoding status, packing commands, unit helpers |
+| `dispense.py` | Time/Volume programs (dispense, pause, repeat) |
+| `runlog.py` | Run log CSV files that keep their columns aligned |
+| `updates.py` | Checking GitHub releases and updating a git clone |
+| `shortcuts.py` | The desktop icon for macOS, Windows and Linux |
+| `settings_location.py` | Where settings live (shared with other lab apps) |
 
 Three things about the REGLO make this different from talking to a PLC:
 
@@ -147,7 +171,7 @@ Three things about the REGLO make this different from talking to a PLC:
 |---|---|---|
 | 0–3 | INT32 | Status. Bit 0: status OK, bit 1: pump running, bit 2: dispense running, bit 4: head open, bit 7: remote mode active |
 | 4 | BYTE | Dispense mode (0 = continuous, 1 = time, 2 = volume) |
-| 5 | BYTE | Tube size code (the Masterflex manual's Table 4 is missing; the app's table is in `TUBE_CODES_MM`) |
+| 5 | BYTE | Tube size code (the Masterflex manual's Table 4 is missing; the app's table is `TUBE_CODES_MM` in `protocol.py`) |
 | 6 | BYTE | Flow unit code (Table 3, below) |
 | 8–11 | FLOAT | Cumulative volume |
 | 24–27 | INT32 | Current batch count |
@@ -182,6 +206,10 @@ Three things about the REGLO make this different from talking to a PLC:
   program to stop. In remote mode the pump also stops on its own if the app goes quiet.
 - **If the pump stops answering**, the status bar shows "No response from pump", the event log
   says why, and the app keeps retrying. It logs again when the pump is back.
+- **RPM is an estimate.** The pump doesn't report its speed; the app scales the flow by the
+  pump's maximum flow for the fitted tube, reached at the Max Drive RPM set in ⚙ → Hardware.
+- **Updates come from GitHub releases** and only work for a git clone with no hand-edited
+  files. A built app (`.exe`/`.app`) links to the releases page instead.
 - **USB is for firmware only.** The REGLO's USB port can't control the pump, and the older
   `masterflex-serial` library for L/S and I/P pumps doesn't work with this series.
 - **No security on the pump.** Anyone on the same network can control it. Keep it on a lab
@@ -199,14 +227,15 @@ ruff check . && ruff format --check .
 python scripts/make_screenshot.py               # regenerate docs/screenshot.png
 ```
 
-Build a standalone app (`.exe` on Windows, `.app` on macOS) into `dist/`:
+Build a standalone app (`.exe` on Windows, `.app` on macOS, a folder on Linux) into `dist/`:
 
 ```bash
-pip install -r requirements.txt
+pip install -e ".[build]"
 python build_app.py
 ```
 
-**Releasing:** bump `__version__` in `pump_gui.py` (the only place it lives), move the
+**Releasing:** the app's **Check for Updates** offers the newest GitHub *release*, so publish
+one for every version people should get. Bump `__version__` in `pump_gui.py` (the only place it lives), move the
 "Unreleased" notes in [CHANGELOG.md](CHANGELOG.md) under the new version and date, run the
 checks above, then commit, tag (`git tag -a vX.Y.Z -m "Masterflex REGLO Pump Control X.Y.Z"`),
 push the commit and the tag, and create the GitHub release from that changelog section with
