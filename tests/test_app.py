@@ -180,3 +180,19 @@ def test_unreadable_settings_are_kept_and_reported(pump_gui, qapp):
         for name in os.listdir(pump_gui.CONFIG_DIR):
             if name.startswith("pump_config.json"):
                 os.remove(os.path.join(pump_gui.CONFIG_DIR, name))
+
+
+def test_import_has_no_side_effects(pump_gui):
+    # main() changes into the data folder; importing (tests, tools) must not.
+    assert os.path.normcase(os.getcwd()) != os.path.normcase(pump_gui.DATA_DIR)
+
+
+def test_relaunch_command_runs_this_file(pump_gui):
+    program, args = pump_gui.relaunch_command()
+    assert program == __import__("sys").executable
+    assert os.path.samefile(args[0], pump_gui.__file__)
+
+
+def test_icons_ship_with_the_code(pump_gui):
+    for name in ("pump.png", "pump.ico", "pump.icns"):
+        assert os.path.getsize(os.path.join(pump_gui.ASSETS, name)) > 1000

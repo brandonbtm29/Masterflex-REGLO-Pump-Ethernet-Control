@@ -50,7 +50,7 @@ def main():
 
     app = QApplication.instance() or QApplication([])
     app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
-    app.setWindowIcon(QIcon(str(REPO / "Peristaltic pump icon multichannel.ico")))
+    app.setWindowIcon(QIcon(str(REPO / "assets" / "pump.png")))
 
     w = ns["MasterflexPumpGUI"]()
     w.resize(1280, 820)

@@ -37,6 +37,10 @@ Homepage = "https://github.com/brandonbtm29/Masterflex-REGLO-Pump-Ethernet-Contr
 Changelog = "https://github.com/brandonbtm29/Masterflex-REGLO-Pump-Ethernet-Control/blob/master/CHANGELOG.md"
 Issues = "https://github.com/brandonbtm29/Masterflex-REGLO-Pump-Ethernet-Control/issues"
 
+# Start the app with `masterflex-reglo` after `pip install -e .` (no console window on Windows).
+[project.gui-scripts]
+masterflex-reglo = "pump_gui:main"
+
 [tool.hatch.version]
 path = "pump_gui.py"
 

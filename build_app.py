@@ -1,53 +1,68 @@
+"""Build a standalone app with PyInstaller.
+
+    pip install -e ".[build]"      (or: pip install -r requirements.txt)
+    python build_app.py
+
+Windows: dist/MasterFlex_Pump_GUI.exe (one file). macOS: dist/MasterFlex_Pump_GUI.app.
+Linux: dist/MasterFlex_Pump_GUI/ (a folder with the program inside).
+"""
+
+import os
 import subprocess
 import sys
 
-
-def ensure_requirements():
-    print("Ensuring dependencies are installed...")
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-    except subprocess.CalledProcessError as e:
-        print(f"Failed to install requirements: {e}")
-        sys.exit(1)
+HERE = os.path.dirname(os.path.abspath(__file__))
+NAME = "MasterFlex_Pump_GUI"
 
 
 def build():
-    print("Building executable for MasterFlex Pump GUI...")
+    if not _has_module("PyInstaller"):
+        sys.exit('PyInstaller isn\'t installed. Run: pip install -e ".[build]"')
 
+    sep = ";" if os.name == "nt" else ":"
     cmd = [
-        "pyinstaller",
-        "--noconsole",
-        "--onefile",
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--windowed",  # no console window; on macOS this makes a .app
         "--name",
-        "MasterFlex_Pump_GUI",
-        "--icon",
-        "Peristaltic pump icon multichannel.ico",
+        NAME,
+        "--add-data",
+        f"assets{sep}assets",  # window icon and shortcut icons
         "--exclude-module",
         "PySide6",
         "--exclude-module",
         "PyQt5",
-        "pump_gui.py",
     ]
+    if sys.platform == "darwin":
+        # A .app bundle; PyInstaller recommends folder mode (--onedir) for these.
+        cmd += ["--onedir", "--icon", os.path.join("assets", "pump.icns")]
+    elif sys.platform == "win32":
+        cmd += ["--onefile", "--icon", os.path.join("assets", "pump.ico")]
+    else:
+        cmd += ["--onedir"]
+    cmd.append("pump_gui.py")
 
+    print("Running:", " ".join(cmd))
     try:
-        subprocess.check_call(cmd)
-
-        print("\n=============================================")
-        print("BUILD COMPLETE!")
-        if sys.platform == "darwin":
-            print("Your application bundle is located in the 'dist' folder: dist/MasterFlex_Pump_GUI.app")
-            print("You can drag this .app file to your Applications folder or Desktop.")
-        else:
-            print("Your executable is located in the 'dist' folder: dist\\MasterFlex_Pump_GUI.exe")
-            print("You can right-click this to create a shortcut for your Desktop or Taskbar.")
-        print("=============================================\n")
-
+        subprocess.check_call(cmd, cwd=HERE)
     except subprocess.CalledProcessError as e:
-        print(f"Build failed with error: {e}")
-        sys.exit(1)
+        sys.exit(f"Build failed: {e}")
+
+    target = {"darwin": f"{NAME}.app", "win32": f"{NAME}.exe"}.get(sys.platform, NAME)
+    print(f"\nBuild complete: dist/{target}")
+    if sys.platform == "darwin":
+        print("Drag it into Applications, or use Settings > App > Add App Icon to Desktop.")
+    elif sys.platform == "win32":
+        print("Use Settings > App > Add Shortcut to Desktop, or right-click it > Pin to Start.")
+
+
+def _has_module(name):
+    import importlib.util
+
+    return importlib.util.find_spec(name) is not None
 
 
 if __name__ == "__main__":
-    ensure_requirements()
-    print("Running PyInstaller...")
     build()

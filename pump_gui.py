@@ -6,22 +6,20 @@ import os
 import sys
 
 # --- Code vs data -----------------------------------------------------------
-# Code lives in GitHub Projects/UAkron/<repo>; data (exports, backups, logs) lives
-# in SyncThing. The app runs with the data folder as
-# its working directory, so relative paths like "Data/" land there.
-# Override with UAKRON_APP_DATA_DIR (this app) or UAKRON_DATA_DIR (data root).
+# Code lives in a git clone; data (run logs) lives in the SyncThing data folder:
+# ~/SyncThing/UAkron Playground/MasterFlex Pump by default. Override with
+# UAKRON_APP_DATA_DIR (this app's folder) or UAKRON_DATA_DIR (the parent folder).
+# Importing this module only works out these paths; main() creates folders and
+# changes into the data folder.
 script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.argv[0] = os.path.abspath(sys.argv[0])  # keeps "Restart" working after chdir
 DATA_DIR = os.environ.get("UAKRON_APP_DATA_DIR") or os.path.join(
     os.environ.get("UAKRON_DATA_DIR")
     or os.path.join(os.path.expanduser("~"), "SyncThing", "UAkron Playground"),
     "MasterFlex Pump",
 )
-os.makedirs(DATA_DIR, exist_ok=True)
-os.chdir(DATA_DIR)
-# Settings (config, secrets, ROIs) live in the app folder by default, gitignored.
-# The "Settings Folder" option (settings_location.py) can point them at a synced
-# folder instead, e.g. "Settings" inside the data folder.
+# Settings live in the app folder by default, gitignored. The "Settings Folder" option
+# (settings_location.py) can point them at a synced folder instead, e.g. "Settings"
+# inside the data folder.
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 import dispense
@@ -33,12 +31,15 @@ APP_DIR = settings_location.app_folder(script_dir)
 CONFIG_DIR = settings_location.resolve(APP_DIR, DATA_DIR)
 SETTINGS_FILES = ["pump_config.json"]
 # Run logs are data: kept in Data/ inside the pump's data folder.
-os.makedirs(os.path.join(DATA_DIR, "Data"), exist_ok=True)
-RUN_LOG = os.path.join(DATA_DIR, "Data", "run_log.csv")
-RUN_LOG_BACKUP = os.path.join(DATA_DIR, "Data", "run_log_backup.csv")
+LOG_DIR = os.path.join(DATA_DIR, "Data")
+RUN_LOG = os.path.join(LOG_DIR, "run_log.csv")
+RUN_LOG_BACKUP = os.path.join(LOG_DIR, "run_log_backup.csv")
+ASSETS = os.path.join(script_dir, "assets")
+APP_NAME = "Masterflex REGLO Pump Control"
 
 import json
 import shutil
+import subprocess
 import threading
 import time
 import webbrowser
@@ -97,6 +98,16 @@ except ImportError:
 MASTERFLEX_ORANGE = "#F04E23"
 FLOW_UNITS = proto.FLOW_UNITS
 TUBE_CODES_MM = proto.TUBE_CODES_MM
+
+
+def open_path(path):
+    """Open a file or folder with the computer's default app."""
+    if sys.platform == "win32":
+        os.startfile(path)
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", path])
+    else:
+        subprocess.Popen(["xdg-open", path])
 
 
 class CollapsibleBox(QWidget):
@@ -252,16 +263,7 @@ class SettingsDialog(QDialog):
 
     def on_open_log(self):
         if os.path.exists(RUN_LOG):
-            if sys.platform == "win32":
-                os.startfile(RUN_LOG)
-            elif sys.platform == "darwin":
-                import subprocess
-
-                subprocess.Popen(["open", RUN_LOG])
-            else:
-                import subprocess
-
-                subprocess.Popen(["xdg-open", RUN_LOG])
+            open_path(RUN_LOG)
         else:
             self.parent().log_error("run_log.csv does not exist yet.")
 
@@ -939,7 +941,7 @@ class MasterflexPumpGUI(QMainWindow):
         self.disconnect(reason="restarted")
         from PyQt6.QtCore import QProcess
 
-        QProcess.startDetached(sys.executable, sys.argv)
+        QProcess.startDetached(*relaunch_command())
         QApplication.quit()
 
     def update_button_styles(self):
@@ -1268,35 +1270,17 @@ class MasterflexPumpGUI(QMainWindow):
 
     def cmd_open_log_folder(self):
         try:
-            if sys.platform == "win32":
-                os.startfile(os.getcwd())
-            elif sys.platform == "darwin":
-                import subprocess
-
-                subprocess.Popen(["open", os.getcwd()])
-            else:
-                import subprocess
-
-                subprocess.Popen(["xdg-open", os.getcwd()])
+            os.makedirs(LOG_DIR, exist_ok=True)
+            open_path(LOG_DIR)
         except Exception as e:
             self.log_error(f"Failed to open folder: {e}")
 
     def cmd_open_log_file(self):
-        log_file = RUN_LOG
-        if not os.path.exists(log_file):
+        if not os.path.exists(RUN_LOG):
             self.log_msg_ui("No run_log.csv found yet.")
             return
         try:
-            if sys.platform == "win32":
-                os.startfile(log_file)
-            elif sys.platform == "darwin":
-                import subprocess
-
-                subprocess.Popen(["open", log_file])
-            else:
-                import subprocess
-
-                subprocess.Popen(["xdg-open", log_file])
+            open_path(RUN_LOG)
         except Exception as e:
             self.log_error(f"Failed to open log file: {e}")
 
@@ -1716,13 +1700,25 @@ class MasterflexPumpGUI(QMainWindow):
         return text
 
 
-if __name__ == "__main__":
+def relaunch_command():
+    """(program, arguments) that start this app again, from source or as a built app."""
+    if getattr(sys, "frozen", False):
+        return sys.executable, sys.argv[1:]
+    return sys.executable, [os.path.abspath(__file__), *sys.argv[1:]]
+
+
+def main():
+    os.makedirs(LOG_DIR, exist_ok=True)
+    os.chdir(DATA_DIR)  # relative paths (e.g. in file dialogs) start in the data folder
     app = QApplication(sys.argv)
+    app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(__version__)
     app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
-
-    app.setWindowIcon(QIcon(os.path.join(script_dir, "Peristaltic pump icon multichannel.ico")))
-
+    app.setWindowIcon(QIcon(os.path.join(ASSETS, "pump.png")))
     window = MasterflexPumpGUI()
     window.showMaximized()
+    return app.exec()
 
-    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    sys.exit(main())
