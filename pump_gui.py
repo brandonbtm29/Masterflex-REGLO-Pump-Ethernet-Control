@@ -390,14 +390,6 @@ class MasterflexPumpGUI(QMainWindow):
                 pass
         self.hardware_max_rpm = self.config_data.get("max_rpm", 160.0)
 
-    def cmd_restart_app(self):
-        self.log_msg("Restarting application...")
-        if self.connected:
-            self._safe_stop()
-            self.polling = False
-        QApplication.quit()
-        os.execl(sys.executable, sys.executable, *sys.argv)
-
     def setup_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)

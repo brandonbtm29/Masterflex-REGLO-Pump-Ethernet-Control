@@ -63,8 +63,7 @@ ignore = ["S101"] # asserts are fine in tests
 # E402: imports deliberately follow the data-folder setup at the top of the file.
 # E501: long UI strings and stylesheets.
 # E722/S110/BLE: the comms loop swallows errors on purpose for now (see CHANGELOG "Known issues").
-# F811: cmd_restart_app is defined twice; the second wins (known issue, left as-is).
 # S603/S606/S607: opens files/folders with the OS default app, fixed arguments.
-"pump_gui.py" = ["E402", "E501", "E722", "S110", "F811", "S603", "S606", "S607"]
+"pump_gui.py" = ["E402", "E501", "E722", "S110", "S603", "S606", "S607"]
 "build_app.py" = ["S603", "S607"]
 "scripts/*" = ["E402"]
