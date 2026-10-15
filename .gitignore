@@ -1,5 +1,6 @@
 # --- Your private settings: NEVER commit these ---
 pump_config.json
+pump_config.json.*
 settings_location.json
 secrets.json
 .env

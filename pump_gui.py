@@ -352,15 +352,34 @@ class MasterflexPumpGUI(QMainWindow):
 
         if not PYCOMM3_AVAILABLE:
             self.log_error("pycomm3 missing! Please run: pip install pycomm3")
+        if self._settings_problem:
+            self.log_error(self._settings_problem)
 
     def load_settings(self):
+        """Read pump_config.json. If it can't be read, keep a copy and say so (after the window
+        is up) instead of silently starting over and then overwriting it."""
+        self._settings_problem = ""
         if os.path.exists(self.config_file):
             try:
-                with open(self.config_file) as f:
-                    self.config_data = json.load(f)
-            except Exception:
-                pass
-        self.hardware_max_rpm = self.config_data.get("max_rpm", 160.0)
+                with open(self.config_file, encoding="utf-8") as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    raise ValueError("it doesn't contain settings")
+                self.config_data = data
+            except (OSError, ValueError) as e:
+                kept = f"{self.config_file}.unreadable-{time.strftime('%Y%m%d-%H%M%S')}"
+                try:
+                    shutil.copy2(self.config_file, kept)
+                    where = f" The old file was kept as {os.path.basename(kept)}."
+                except OSError:
+                    where = ""
+                self._settings_problem = (
+                    f"Couldn't read the settings file ({e}). Started from defaults.{where}"
+                )
+        try:
+            self.hardware_max_rpm = float(self.config_data.get("max_rpm", 160.0))
+        except (TypeError, ValueError):
+            self.hardware_max_rpm = 160.0
 
     def setup_ui(self):
         central_widget = QWidget()
@@ -815,11 +834,15 @@ class MasterflexPumpGUI(QMainWindow):
                 k: self.token_inputs[k].text() for k in self.get_token_order() if k in self.token_inputs
             }
 
+        # Write a temp file and swap it in, so a crash mid-save can't leave a broken file.
+        tmp = self.config_file + ".tmp"
         try:
-            with open(self.config_file, "w") as f:
-                json.dump(self.config_data, f)
-        except Exception as e:
-            print("Failed to save config:", e)
+            os.makedirs(os.path.dirname(self.config_file) or ".", exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.config_data, f, indent=2)
+            os.replace(tmp, self.config_file)
+        except (OSError, TypeError, ValueError) as e:
+            self.log_error(f"Couldn't save settings: {e}")
 
     def save_monitor_order(self):
         new_order = []

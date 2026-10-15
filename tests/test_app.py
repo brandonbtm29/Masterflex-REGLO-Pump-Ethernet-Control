@@ -158,3 +158,25 @@ def test_auto_log_writes_token_columns(window, pump_gui):
     header, rows = runlog.read(pump_gui.RUN_LOG)
     assert header[: len(runlog.FIXED)] == runlog.FIXED and "Material" in header
     assert rows[-1]["Material"] == "Sample media A"
+
+
+def test_unreadable_settings_are_kept_and_reported(pump_gui, qapp):
+    path = os.path.join(pump_gui.CONFIG_DIR, "pump_config.json")
+    os.makedirs(pump_gui.CONFIG_DIR, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write('{"ip": "192.0.2.10", ')  # cut off mid-write
+    w = pump_gui.MasterflexPumpGUI()
+    try:
+        assert "Couldn't read the settings file" in w.console_textbox.toPlainText()
+        kept = [n for n in os.listdir(pump_gui.CONFIG_DIR) if n.startswith("pump_config.json.unreadable-")]
+        assert kept
+        w.save_all_settings()
+        with open(path, encoding="utf-8") as f:
+            assert f.read().startswith("{")  # replaced with a valid file
+        assert not os.path.exists(path + ".tmp")
+    finally:
+        w.timer.stop()
+        w.close()
+        for name in os.listdir(pump_gui.CONFIG_DIR):
+            if name.startswith("pump_config.json"):
+                os.remove(os.path.join(pump_gui.CONFIG_DIR, name))
