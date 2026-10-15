@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "masterflex-reglo-control"
+dynamic = ["version"]
+description = "Desktop app that runs a Masterflex REGLO peristaltic pump over EtherNet/IP: set flow, dispense by time or volume, and log each run."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Brandon T. McReynolds" }]
+keywords = ["masterflex", "reglo", "peristaltic-pump", "ethernet-ip", "cip", "pyqt6", "lab-automation"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+]
+# Keep requirements.txt in step with this list (the launchers and build_app.py use it).
+dependencies = [
+    "PyQt6>=6.5",
+    "pyqtdarktheme>=0.1.7", # 2.x supports Python < 3.12 only; 0.1.7 is picked on newer Pythons
+    "pycomm3>=1.2.14",
+]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://github.com/brandonbtm29/Masterflex-REGLO-Pump-Ethernet-Control"
+Changelog = "https://github.com/brandonbtm29/Masterflex-REGLO-Pump-Ethernet-Control/blob/master/CHANGELOG.md"
+Issues = "https://github.com/brandonbtm29/Masterflex-REGLO-Pump-Ethernet-Control/issues"
+
+[tool.hatch.version]
+path = "pump_gui.py"
+
+# A flat, script-style app: run it from the clone. The wheel only exists so that
+# `pip install -e ".[dev]"` can install the dependencies and dev tools.
+[tool.hatch.build.targets.wheel]
+only-include = ["pump_gui.py", "settings_location.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = ["S101"] # asserts are fine in tests
+
+[tool.ruff.lint.per-file-ignores]
+# E402: imports deliberately follow the data-folder setup at the top of the file.
+# E501: long UI strings and stylesheets.
+# E722/S110/BLE: the comms loop swallows errors on purpose for now (see CHANGELOG "Known issues").
+# F811: cmd_restart_app is defined twice; the second wins (known issue, left as-is).
+# S603/S606/S607: opens files/folders with the OS default app, fixed arguments.
+"pump_gui.py" = ["E402", "E501", "E722", "S110", "F811", "S603", "S606", "S607"]
+"build_app.py" = ["S603", "S607"]
+"scripts/*" = ["E402"]

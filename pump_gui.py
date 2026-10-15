@@ -1,3 +1,7 @@
+"""Masterflex REGLO pump controller: a PyQt6 GUI that drives the pump over EtherNet/IP."""
+
+__version__ = "1.0.0"
+
 import sys
 import os
 

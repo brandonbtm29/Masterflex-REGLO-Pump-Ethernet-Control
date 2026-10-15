@@ -1,4 +1,6 @@
-PyQt6
-pyqtdarktheme
-pycomm3
-pyinstaller
+# Runtime + build dependencies for the launchers and build_app.py.
+# Keep in step with pyproject.toml. Developers: pip install -e ".[dev]" instead.
+PyQt6>=6.5
+pyqtdarktheme>=0.1.7
+pycomm3>=1.2.14
+pyinstaller>=6.0
