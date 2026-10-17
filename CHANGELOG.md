@@ -20,8 +20,11 @@ the last, and changes that break existing settings or workflows bump the first.
   that showed the pump running, so whatever it pumped between the run command and that reading
   wasn't counted. Dispenses are now measured from the run command; the only overshoot left is
   that a stop can only be sent at a poll (at most one poll interval of flow).
-- The end-to-end dispensing test failed intermittently on Windows and macOS CI because of the
-  bug above. It now checks each dispense against
+- **The automatic connect at launch could disconnect you**: if you clicked Connect within the
+  first 2 seconds, the timer then toggled the connection off again, stopping the pump and any
+  running program. It now only connects, and does nothing if you're already connected.
+- The end-to-end dispensing test failed intermittently on Windows and macOS CI because of both
+  bugs above (and a pump address saved by an earlier test). It now checks each dispense against
   the measured poll gaps instead of a fixed limit.
 
 ## [1.1.0] - 2026-10-15

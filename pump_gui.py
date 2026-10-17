@@ -847,9 +847,10 @@ class MasterflexPumpGUI(QMainWindow):
         self.apply_loaded_settings()
         self.log_msg("Application started. Ready to connect.")
 
-        # Auto-connect after 2 seconds if IP exists
+        # Auto-connect after 2 seconds if IP exists. connect() (not toggle_connection) so that
+        # if you already clicked Connect in those 2 seconds, this doesn't disconnect you again.
         if self.ip_entry.text():
-            QTimer.singleShot(2000, self.toggle_connection)
+            QTimer.singleShot(2000, self.connect)
         self.update_parameter_visibility()
         self.load_run_logs()
 

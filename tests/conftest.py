@@ -37,6 +37,11 @@ def qapp(pump_gui):
 
 @pytest.fixture
 def window(pump_gui, qapp):
+    # Start every window from default settings. Otherwise a pump address saved by an earlier
+    # test makes the window auto-connect 2 s after it opens, in the middle of this test.
+    config = os.path.join(pump_gui.CONFIG_DIR, "pump_config.json")
+    if os.path.exists(config):
+        os.remove(config)
     w = pump_gui.MasterflexPumpGUI()
     yield w
     w.connected = False  # never run the real disconnect path

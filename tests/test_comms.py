@@ -129,3 +129,25 @@ def test_failed_connect_does_not_freeze_or_connect(window, qapp, monkeypatch):
     assert not window.connected and window.connect_btn.isEnabled()
     assert window.connect_btn.text() == "Connect"
     assert "No route to host" in console(window)
+
+
+def test_auto_connect_never_disconnects(pump_gui, qapp, monkeypatch):
+    """A saved address makes the app connect 2 s after it opens. If you clicked Connect
+    yourself in those 2 s, that timer must not disconnect you (it used to toggle)."""
+    import json
+    import os
+
+    scheduled = []
+    monkeypatch.setattr(pump_gui.QTimer, "singleShot", lambda ms, fn: scheduled.append(fn))
+    with open(os.path.join(pump_gui.CONFIG_DIR, "pump_config.json"), "w", encoding="utf-8") as f:
+        json.dump({"ip": "192.0.2.10"}, f)
+    window = pump_gui.MasterflexPumpGUI()
+    try:
+        assert window.connect in scheduled and window.toggle_connection not in scheduled
+        window.connected = True  # e.g. you clicked Connect first
+        window.connect()  # the timer fires
+        assert window.connected and not window._connecting
+    finally:
+        window.connected = False
+        window.timer.stop()
+        window.close()
