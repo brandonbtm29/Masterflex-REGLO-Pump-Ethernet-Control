@@ -7,12 +7,29 @@ the last, and changes that break existing settings or workflows bump the first.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-17
+
+Shows when it's out of date, keeps its desktop icon current, runs without a console window,
+logs errors, and measures Time/Volume dispenses more accurately.
+
 ### Added
+- **Version shown bottom right.** It turns orange with "Update available: vX" when GitHub has a
+  newer release (checked at launch and daily), and the event log mentions it once. Click it to
+  open ⚙ → App.
+- **Desktop icon made for you**: the first time the app runs on a computer it adds a
+  "Masterflex Pump" icon with the pump logo, and refreshes it when the icon image, the app's
+  folder or its Python changes (for example after an update). Delete it and it stays deleted;
+  ⚙ → App adds it back.
 - **Error log**: errors, with tracebacks (also from background threads), go to `logs/masterflex_pump.log`
   in the data folder. An unexpected error is shown in a dialog and the app keeps running instead of closing,
   so a running program isn't cut off.
 - `Setup_Windows.bat` / `Setup_Mac.command`: one double-click creates the `.venv` and installs everything.
 - Dependabot keeps the GitHub Actions and Python dependencies up to date.
+
+### Changed
+- **No console or Terminal window.** The Windows launcher starts the app without a console; the
+  Mac launcher starts it and closes its Terminal window. The desktop icons never open one. If
+  packages are missing, the launchers say so and point to the Setup scripts.
 
 ### Fixed
 - **Time and Volume dispenses ran over by up to one extra poll interval** (about 0.1 s of flow,
