@@ -47,8 +47,11 @@ any REGLO with Advanced Connectivity (models 78018-10, 78018-12, 78018-40 and si
   computers share them.
 - **Firmware helper**: copies a firmware file you downloaded onto a USB drive and shows the
   update steps for the pump.
-- **One-click updates** from GitHub releases, and a **desktop icon** with the pump logo
-  (a Mac app, a Windows shortcut, or a Linux menu entry), both in ⚙ → App.
+- **Knows when it's out of date**: the version is shown bottom right and turns orange when a
+  newer release is on GitHub. **One-click updates** in ⚙ → App.
+- **Desktop icon** with the pump logo (a Mac app, a Windows shortcut, a Linux menu entry),
+  added the first time the app runs and kept up to date. It starts the app with no console or
+  Terminal window.
 - **Double-click launchers** for Windows and macOS.
 
 ## Quick start
@@ -77,9 +80,10 @@ On **macOS / Linux**:
 ./Launch_Mac.command        # or: .venv/bin/python pump_gui.py
 ```
 
-After this, double-click `Launch_Windows.bat` or `Launch_Mac.command` to start the app, or
-open ⚙ → **App** and click **Add App Icon to Desktop** (macOS) / **Add Shortcut to Desktop**
-(Windows) to get an icon you can double-click or keep in the Dock or taskbar.
+The first time it runs, the app puts a **Masterflex Pump** icon on your desktop; use that from
+then on (on a Mac you can drag it into the Dock). The launchers still work too: they start the
+app and close their console/Terminal window. On a Mac, the first time, macOS may ask whether
+Terminal may control Terminal; that only lets the launcher close its own window.
 
 In the app: enter the pump's IP address (or click the search button), click **Connect**, then
 **Enable Remote**. Set the flow rate and mode, click **Apply Parameters**, then **Start / Run**.
@@ -99,7 +103,8 @@ In the app: enter the pump's IP address (or click the search button), click **Co
 | Save Selected / Delete Selected | Writes chosen runs from the history to the CSV log, or removes them from the history and `run_log_backup.csv` (after asking; the previous file is kept as `.bak`) |
 | Open Log Folder / Open Log File | Opens the data folder or the CSV log |
 | ⚙ → Hardware | Maximum drive RPM (for the RPM estimate), icon buttons, the settings folder |
-| ⚙ → App | Version, **Check for Updates**, and the desktop icon button |
+| ⚙ → App | Version, **Check for Updates**, and a button to add the desktop icon again |
+| Version (bottom right) | Turns orange when a newer release exists; click it to get to Check for Updates |
 | ⚙ → Firmware | Copies a firmware file onto a USB drive and shows the pump's update steps |
 
 ## Where files go
@@ -213,6 +218,9 @@ Three things about the REGLO make this different from talking to a PLC:
   pump's maximum flow for the fitted tube, reached at the Max Drive RPM set in ⚙ → Hardware.
 - **Updates come from GitHub releases** and only work for a git clone with no hand-edited
   files. A built app (`.exe`/`.app`) links to the releases page instead.
+- **No console window** means errors can't be printed; they go to `logs/masterflex_pump.log` in
+  the data folder (and a dialog). If the app won't open at all, run `Launch_Windows.bat` /
+  `Launch_Mac.command`: they check the packages first and say what's missing.
 - **USB is for firmware only.** The REGLO's USB port can't control the pump, and the older
   `masterflex-serial` library for L/S and I/P pumps doesn't work with this series.
 - **No security on the pump.** Anyone on the same network can control it. Keep it on a lab
