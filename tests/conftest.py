@@ -99,7 +99,14 @@ def connected(window):
 
 
 class SimPump(FakePump):
-    """A pump that actually 'runs': it pumps 0.1 mL/s (6 mL/min) while the run bit is set."""
+    """A pump that actually 'runs': it pumps 0.1 mL/s (6 mL/min) while the run bit is set.
+
+    It starts and stops the instant a write changes the run bit, and records what happened:
+    ``dispenses`` is a list of [volume when started, volume when stopped], ``read_times`` the
+    time of every status read (the app can only react at a read).
+    """
+
+    FLOW = 0.1  # mL/s
 
     def __init__(self):
         super().__init__()
@@ -112,16 +119,24 @@ class SimPump(FakePump):
         self.volume = 0.0
         self._t = self._time()
         self.open = lambda: None
+        self.dispenses = []
+        self.read_times = []
 
     def generic_message(self, service, class_code, instance, attribute=b"", request_data=b"", **kw):
         with self._lock:
             now = self._time()
             if self.run:
-                self.volume += 0.1 * (now - self._t)
+                self.volume += self.FLOW * (now - self._t)
             self._t = now
             if service == b"\x10":
-                self.run = bool(request_data[0] & 1)
+                run = bool(request_data[0] & 1)
+                if run and not self.run:
+                    self.dispenses.append([self.volume, None])
+                elif self.run and not run:
+                    self.dispenses[-1][1] = self.volume
+                self.run = run
             else:
+                self.read_times.append(now)
                 status = 0b10000011 if self.run else 0b10000001
                 self.input_data = fake_input(
                     status=status, cum_vol=self.volume, flow=6.0 if self.run else 0.0

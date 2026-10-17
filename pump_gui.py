@@ -1251,12 +1251,18 @@ class MasterflexPumpGUI(QMainWindow):
             if mode not in (dispense.TIME, dispense.VOLUME):
                 return True
             try:
+                # Measure from now: the caller sends the run command right after this.
+                cum_vol = None
+                if self.connected and self.link_ok and len(self.input_data) >= proto.INPUT_SIZE:
+                    cum_vol = proto.decode_status(self.input_data).cum_volume
                 self.dispense.start(
                     mode,
                     on_time=params["on_time"],
                     volume=params["volume"],
                     off_time=params["off_time"],
                     batch_total=params["batch"],
+                    now=time.monotonic(),
+                    cum_vol=cum_vol,
                 )
             except ValueError as e:
                 self.log_error(f"Not started: {e}")

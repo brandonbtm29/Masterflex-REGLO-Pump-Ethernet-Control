@@ -87,7 +87,8 @@ def step(window, pump, now, monkeypatch, **status):
 def test_window_runs_a_time_program(connected, monkeypatch):
     window, pump = connected
     set_program(window, window.mode_radio1, flow=5, on_time=4, off_time=0, batch=1)
-    window.cmd_start()
+    monkeypatch.setattr("pump_gui.time.monotonic", lambda: 100.0)
+    window.cmd_start()  # the 4 s count from this command
     assert window.output_data[0] & 1 and window.dispense.active
 
     step(window, pump, 100.0, monkeypatch, status=0b10000011, cum_vol=0.0)  # running
@@ -165,6 +166,7 @@ def test_remaining_time():
 def test_window_drops_the_program_when_stopped_on_the_touchscreen(connected, monkeypatch):
     window, pump = connected
     set_program(window, window.mode_radio1, flow=5, on_time=60, off_time=5, batch=0)
+    monkeypatch.setattr("pump_gui.time.monotonic", lambda: 0.0)
     window.cmd_start()
     step(window, pump, 0.0, monkeypatch, status=0b10000011)
     step(window, pump, 5.0, monkeypatch, status=0b10000011)
@@ -185,7 +187,12 @@ def test_format_seconds():
 
 
 def test_end_to_end_volume_program_with_real_threads(window, qapp, monkeypatch, pump_gui):
-    """Connect, run 2 x 0.05 mL with a 0.3 s pause on a simulated pump, then check the log."""
+    """Connect, run 2 x 0.05 mL with a pause on a simulated pump, with the real comms thread.
+
+    The app can only stop the pump at a status read, so each dispense may run over by at most
+    the flow during the longest gap between two reads. That bound is measured, not guessed, so
+    the test holds on slow runners; anything beyond it would be a real over-dispense.
+    """
     import time
 
     from conftest import SimPump
@@ -197,26 +204,64 @@ def test_end_to_end_volume_program_with_real_threads(window, qapp, monkeypatch, 
     if os.path.exists(pump_gui.RUN_LOG):
         os.remove(pump_gui.RUN_LOG)
 
-    def spin(seconds, until=lambda: False):
+    def spin(seconds, until):
         end = time.monotonic() + seconds
         while time.monotonic() < end and not until():
             qapp.processEvents()
             time.sleep(0.02)
+        return until()
 
     window.auto_log_cb.setChecked(True)
     window.ip_entry.setText("192.0.2.10")
     window.connect()
-    spin(2, until=lambda: window.connected)
-    set_program(window, window.mode_radio2, flow=6, volume=0.05, off_time=0.3, batch=2)
+    assert spin(10, lambda: window.connected)
+    set_program(window, window.mode_radio2, flow=6, volume=0.05, off_time=0.5, batch=2)
     try:
         window.cmd_start()
-        spin(8, until=lambda: window.dispense.state == d.DONE and not window.pump_running)
-        assert window.dispense.state == d.DONE and window.dispense.progress() == "2/2"
-        assert not pump.run
-        spin(0.3)
+        # Waits only as long as needed; the timeout is for a hung run, not the expected time.
+        assert spin(30, lambda: window.dispense.state == d.DONE and not window.pump_running), (
+            f"program state {window.dispense.state!r}, log: {window.console_textbox.toPlainText()!r}"
+        )
+        assert window.dispense.progress() == "2/2" and not pump.run
+
+        gaps = [b - a for a, b in zip(pump.read_times, pump.read_times[1:], strict=False)]
+        max_overshoot = SimPump.FLOW * max(gaps) + 1e-9
+        assert len(pump.dispenses) == 2
+        for start, stop in pump.dispenses:
+            dispensed = stop - start
+            assert 0.05 - 1e-9 <= dispensed <= 0.05 + max_overshoot, (dispensed, max(gaps))
+
+        assert spin(5, lambda: len(runlog.read(pump_gui.RUN_LOG)[1]) >= 4)
         events = [r["Event"] for r in runlog.read(pump_gui.RUN_LOG)[1]]
         assert events == ["START", "END", "START", "END"]
-        assert 0.1 <= pump.volume < 0.13  # two 0.05 mL dispenses, a little overshoot allowed
     finally:
         window.disconnect()
         time.sleep(0.2)
+
+
+def test_volume_is_counted_from_the_run_command():
+    """What the pump delivers before the first 'running' reading counts toward the dispense."""
+    c = d.DispenseController()
+    c.start(d.VOLUME, volume=5, off_time=1, batch_total=2, now=0.0, cum_vol=100.0)
+    steps = [
+        (0.1, 101.0, True),  # first reading: already 1 pumped since the command
+        (0.5, 104.9, True),
+        (0.6, 105.0, True),  # 5 since the command -> stop (not 6)
+        (1.6, 105.0, False),  # pause over -> run again; this reading is the new baseline
+        (1.7, 106.0, True),
+        (2.1, 110.0, True),  # 5 since the second command -> stop
+    ]
+    assert run(c, steps) == [(0.6, False), (1.6, True), (2.1, False)]
+    assert c.state == d.DONE
+
+
+def test_time_is_counted_from_the_run_command():
+    c = d.DispenseController()
+    c.start(d.TIME, on_time=2, now=10.0, cum_vol=0.0)
+    assert run(c, [(10.1, 0.0, True), (11.9, 0.0, True), (12.0, 0.0, True)]) == [(12.0, False)]
+
+
+def test_volume_counter_reset_during_a_program():
+    c = d.DispenseController()
+    c.start(d.VOLUME, volume=5, now=0.0, cum_vol=100.0)
+    assert run(c, [(0.1, 0.5, True), (0.5, 5.4, True), (0.6, 5.5, True)]) == [(0.6, False)]

@@ -6,9 +6,13 @@ This module holds that decision logic with no Qt or network code, so it can be t
 
 One cycle = dispense (for ``on_time`` seconds, or until ``volume`` has been pumped), then
 pause for ``off_time`` seconds, repeated ``batch_total`` times (0 = until stopped).
-Timing and volume start counting when the pump actually reports that it is running, so
-spin-up delay doesn't shorten a dispense. If the pump is stopped from its own touchscreen
-during a dispense, or never starts, the program gives up rather than restarting it later.
+Each dispense is measured from the moment the app sends the run command: the volume from the
+pump's cumulative volume just before that command, the time from when it was sent. (Counting
+from the first status reading that shows the pump running instead would leave out everything
+pumped in the up to one poll interval before that reading, so every dispense came out too
+large.) The only remaining overshoot is that a stop can only be sent at a poll: at most one
+poll interval of flow. If the pump is stopped from its own touchscreen during a dispense, or
+never starts, the program gives up rather than restarting it later.
 
 ``tick`` is called from the communication thread about every 100 ms; the caller holds a
 lock around it and around ``start``/``cancel``.
@@ -39,6 +43,7 @@ class DispenseController:
         self._t0 = self._v0 = 0.0
         self._waiting_since = None
         self._idle_since = None
+        self._cmd_time = self._cmd_vol = None  # when / at what volume the run command went out
 
     @property
     def active(self):
@@ -58,8 +63,13 @@ class DispenseController:
             return "Batch Total can't be negative (0 means repeat until stopped)."
         return ""
 
-    def start(self, mode, *, on_time=0.0, volume=0.0, off_time=0.0, batch_total=1):
-        """Arm a new program. The caller turns the run bit on."""
+    def start(self, mode, *, on_time=0.0, volume=0.0, off_time=0.0, batch_total=1, now=None, cum_vol=None):
+        """Arm a new program. The caller turns the run bit on straight after.
+
+        ``now`` and ``cum_vol`` are the time and the pump's cumulative volume at that moment
+        (the latest status reading). Without them, counting starts at the first reading that
+        shows the pump running, which leaves out what it pumped before that reading.
+        """
         error = self.check(mode, on_time=on_time, volume=volume, off_time=off_time, batch_total=batch_total)
         if error:
             raise ValueError(error)
@@ -68,7 +78,7 @@ class DispenseController:
         self.batch_total = int(batch_total)
         self.batches_done = 0
         self.event = ""
-        self._wait()
+        self._wait(now, cum_vol)
 
     def cancel(self):
         self.state = IDLE
@@ -77,9 +87,10 @@ class DispenseController:
         event, self.event = self.event, ""
         return event
 
-    def _wait(self):
+    def _wait(self, now=None, cum_vol=None):
         self.state = WAITING
         self._waiting_since = None
+        self._cmd_time, self._cmd_vol = now, cum_vol
 
     def _give_up(self, why):
         self.state = IDLE
@@ -110,7 +121,11 @@ class DispenseController:
         """
         if self.state == WAITING:
             if running:
-                self._t0, self._v0 = now, cum_vol
+                self._t0 = self._cmd_time if self._cmd_time is not None else now
+                # The baseline is the volume before the run command, unless the counter went
+                # down since (Reset Vol), in which case the best we have is the current value.
+                cmd_vol = self._cmd_vol
+                self._v0 = cmd_vol if cmd_vol is not None and cmd_vol <= cum_vol else cum_vol
                 self._idle_since = None
                 self.state = DISPENSING
                 return None
@@ -148,7 +163,7 @@ class DispenseController:
             return None
 
         if self.state == PAUSING and now - self._t0 >= self.off_time:
-            self._wait()
+            self._wait(now, cum_vol)  # the caller sends the run command in this same cycle
             return True
 
         return None

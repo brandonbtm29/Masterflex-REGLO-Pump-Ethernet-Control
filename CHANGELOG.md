@@ -14,6 +14,16 @@ the last, and changes that break existing settings or workflows bump the first.
 - `Setup_Windows.bat` / `Setup_Mac.command`: one double-click creates the `.venv` and installs everything.
 - Dependabot keeps the GitHub Actions and Python dependencies up to date.
 
+### Fixed
+- **Time and Volume dispenses ran over by up to one extra poll interval** (about 0.1 s of flow,
+  more on Windows and on slow machines). Each dispense was counted from the first status reading
+  that showed the pump running, so whatever it pumped between the run command and that reading
+  wasn't counted. Dispenses are now measured from the run command; the only overshoot left is
+  that a stop can only be sent at a poll (at most one poll interval of flow).
+- The end-to-end dispensing test failed intermittently on Windows and macOS CI because of the
+  bug above. It now checks each dispense against
+  the measured poll gaps instead of a fixed limit.
+
 ## [1.1.0] - 2026-10-15
 
 Safer pump control, working Time mode, one-click updates and a desktop icon. These changes
