@@ -22,6 +22,7 @@ DATA_DIR = os.environ.get("UAKRON_APP_DATA_DIR") or os.path.join(
 # inside the data folder.
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
+import crash_log
 import dispense
 import protocol as proto
 import runlog
@@ -1809,6 +1810,7 @@ def relaunch_command():
 
 def main():
     os.makedirs(LOG_DIR, exist_ok=True)
+    crash_log.setup("masterflex_pump", os.path.join(DATA_DIR, "logs"), __version__)  # errors -> logs/
     os.chdir(DATA_DIR)  # relative paths (e.g. in file dialogs) start in the data folder
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)

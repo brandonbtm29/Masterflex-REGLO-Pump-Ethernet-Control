@@ -7,6 +7,13 @@ the last, and changes that break existing settings or workflows bump the first.
 
 ## [Unreleased]
 
+### Added
+- **Error log**: errors, with tracebacks (also from background threads), go to `logs/masterflex_pump.log`
+  in the data folder. An unexpected error is shown in a dialog and the app keeps running instead of closing,
+  so a running program isn't cut off.
+- `Setup_Windows.bat` / `Setup_Mac.command`: one double-click creates the `.venv` and installs everything.
+- Dependabot keeps the GitHub Actions and Python dependencies up to date.
+
 ## [1.1.0] - 2026-10-15
 
 Safer pump control, working Time mode, one-click updates and a desktop icon. These changes

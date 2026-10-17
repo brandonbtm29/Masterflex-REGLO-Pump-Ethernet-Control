@@ -53,6 +53,7 @@ only-include = [
     "protocol.py",
     "runlog.py",
     "settings_location.py",
+    "crash_log.py",
     "shortcuts.py",
     "updates.py",
 ]

@@ -6,5 +6,6 @@ if exist ".venv\Scripts\python.exe" set "PY=.venv\Scripts\python.exe"
 if errorlevel 1 (
   echo.
   echo The app stopped with an error. Copy the messages above when asking for help.
+  echo If a module is missing, double-click Setup_Windows.bat to install what it needs.
   pause
 )

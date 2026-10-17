@@ -53,6 +53,8 @@ any REGLO with Advanced Connectivity (models 78018-10, 78018-12, 78018-40 and si
 
 ## Quick start
 
+**Easiest:** double-click `Setup_Windows.bat` (Windows) or `Setup_Mac.command` (macOS) once. It creates the `.venv` folder and installs everything the app needs; run it again any time to repair or update the packages. The manual steps follow.
+
 You need Python 3.11 or newer and the pump on the same network as your computer.
 
 ```bash
@@ -104,6 +106,7 @@ In the app: enter the pump's IP address (or click the search button), click **Co
 
 The app keeps your **data** apart from the code:
 
+- **Error log**: errors, with tracebacks (also from background threads), go to `logs/masterflex_pump.log` in the data folder. An unexpected error is shown in a dialog and the app keeps running instead of closing. A hard crash (e.g. in a driver) leaves a `.fatal.log` next to it.
 - **Data folder**: `~/SyncThing/UAkron Playground/MasterFlex Pump` by default (it's created if
   missing). Run logs go in its `Data/` folder: `run_log.csv` (runs you chose to save) and
   `run_log_backup.csv` (every run). To use a different folder, set the environment variable
