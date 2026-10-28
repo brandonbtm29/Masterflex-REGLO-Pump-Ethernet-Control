@@ -6,6 +6,9 @@ secrets.json
 .env
 CLAUDE.local.md
 .claude/settings.local.json
+# This computer's window size and position (kept in the app folder, never synced)
+window_state.json
+window_state.json.*
 
 # --- Instrument data (lives in the SyncThing data folder, not here) ---
 Data/

@@ -54,6 +54,8 @@ only-include = [
     "runlog.py",
     "settings_location.py",
     "crash_log.py",
+    "diagnostics.py",
+    "single_instance.py",
     "shortcuts.py",
     "updates.py",
 ]

@@ -4,6 +4,7 @@ import importlib.metadata
 import os
 import struct
 
+import pytest
 from conftest import fake_input
 
 
@@ -282,3 +283,328 @@ def test_desktop_icon_is_made_on_first_launch_and_remembered(window, pump_gui, q
         {"path": "/Desktop/Masterflex Pump.app", "stamp": "abc"}
     ]
     assert "Added a desktop icon" in window.console_textbox.toPlainText()
+
+
+# --- App tab: log folder, diagnostics, update check at start-up ----------------------------
+
+
+def test_hide_network_details(pump_gui):
+    text = "Connecting to 192.0.2.10:44818... Found REGLO at pump-01.lab.example. Version 1.2.0.4.5"
+    out = pump_gui.hide_network_details(text, ["pump-01.lab.example", "", None])
+    assert "192.0.2.10" not in out and "pump-01.lab.example" not in out
+    assert out.count("[hidden]") == 2
+    assert "1.2.0.4.5" in out  # a version number isn't an address
+
+
+def test_copy_diagnostics_leaves_out_the_pump_address(window, pump_gui, qapp, monkeypatch, tmp_path):
+    import crash_log
+
+    log = tmp_path / "logs" / "masterflex_pump.log"
+    log.parent.mkdir()
+    log.write_text(
+        "INFO masterflex_pump starting\n"
+        "INFO pycomm3 Discovered 1 device(s): [{'ip_address': '198.51.100.7', 'product_name': 'REGLO'}]\n"
+        "ERROR Couldn't reach pump-01.lab.example\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(crash_log, "log_path", lambda: str(log))
+    window.ip_entry.setText("pump-01.lab.example")
+    window.config_data["ip"] = "192.0.2.10"
+    window.pump_model = "REGLO ICC Digital"
+
+    dialog = pump_gui.SettingsDialog(window)
+    assert dialog.log_folder_btn.text() == "Open Log Folder"
+    assert dialog.copy_diag_btn.text() == "Copy Diagnostics"
+    qapp.clipboard().clear()
+    dialog.copy_diag_btn.click()
+    text = qapp.clipboard().text()
+    assert text.startswith(f"{pump_gui.APP_NAME} {pump_gui.__version__}")
+    assert "Pump: not connected" in text and "Pump model: REGLO ICC Digital" in text
+    assert "Couldn't reach [hidden]" in text  # the end of the error log is included
+    for private in ("198.51.100.7", "192.0.2.10", "pump-01.lab.example"):
+        assert private not in text
+    node = __import__("platform").node()
+    if len(node) >= 3:
+        assert node not in text
+    assert dialog.diag_status.text().startswith("Diagnostics copied.")
+    dialog.close()
+
+
+def test_open_log_folder(window, pump_gui, monkeypatch, tmp_path):
+    import crash_log
+    import diagnostics
+
+    opened = []
+    monkeypatch.setattr(diagnostics, "open_folder", opened.append)
+    monkeypatch.setattr(crash_log, "log_path", lambda: str(tmp_path / "logs" / "masterflex_pump.log"))
+    dialog = pump_gui.SettingsDialog(window)
+    dialog.log_folder_btn.click()
+    assert opened == [str(tmp_path / "logs")]
+
+    def broken(path):
+        raise OSError("There is no folder to open yet.")
+
+    monkeypatch.setattr(diagnostics, "open_folder", broken)
+    dialog.log_folder_btn.click()
+    assert "Couldn't open the log folder: There is no folder to open yet." in dialog.diag_status.text()
+    dialog.close()
+
+
+def test_check_for_updates_at_start_setting(window, pump_gui):
+    from PyQt6.QtCore import QTimer
+
+    assert window.check_updates_on_start()  # on by default
+    dialog = pump_gui.SettingsDialog(window)
+    assert dialog.check_on_start_cb.text() == "Check for updates when the app starts"
+    assert dialog.check_on_start_cb.isChecked()
+
+    window._update_timer = QTimer(window)  # the daily re-check, as start_update_check makes it
+    window._update_timer.start(3_600_000)
+    dialog.check_on_start_cb.setChecked(False)
+    assert not window.check_updates_on_start()
+    assert not window._update_timer.isActive()
+    with open(window.config_file, encoding="utf-8") as f:
+        assert __import__("json").load(f)["check_updates_on_start"] is False
+    dialog.close()
+
+    again = pump_gui.MasterflexPumpGUI()  # read back from the settings file
+    try:
+        assert not again.check_updates_on_start()
+        assert not pump_gui.SettingsDialog(again).check_on_start_cb.isChecked()
+    finally:
+        again.timer.stop()
+        again.close()
+    dialog = pump_gui.SettingsDialog(window)
+    dialog.check_on_start_cb.setChecked(True)
+    assert window.check_updates_on_start() and window._update_timer.isActive()
+    dialog.close()
+
+
+# --- Restart and the single-instance lock -------------------------------------------------
+
+
+def test_restart_releases_the_lock_before_starting_the_new_copy(window, pump_gui, monkeypatch):
+    from PyQt6.QtCore import QProcess
+
+    events = []
+    monkeypatch.setattr(pump_gui.single_instance, "release", lambda: events.append("release"))
+    monkeypatch.setattr(QProcess, "startDetached", lambda *args: events.append("start") or True)
+    monkeypatch.setattr(pump_gui.QApplication, "quit", lambda: events.append("quit"))
+    window.cmd_restart_app()
+    assert events == ["release", "start", "quit"]
+
+    # Update and Restart goes the same way.
+    events.clear()
+    monkeypatch.setattr(pump_gui.QMessageBox, "information", lambda *args: None)
+    dialog = pump_gui.SettingsDialog(window)
+    dialog.on_update_done(True, "Updated to v9.9.9.")
+    assert events == ["release", "start", "quit"]
+    dialog.close()
+
+
+# --- Window layout -----------------------------------------------------------------------
+
+
+def test_window_layout_is_remembered_on_this_computer_only(pump_gui, qapp, tmp_path):
+    from PyQt6.QtCore import QRect
+
+    assert os.path.dirname(pump_gui.WINDOW_STATE_FILE) == pump_gui.APP_DIR  # not the synced folder
+    with open(os.path.join(os.path.dirname(pump_gui.__file__), ".gitignore"), encoding="utf-8") as f:
+        assert "window_state.json" in f.read().split()
+
+    state = tmp_path / "window_state.json"
+    first = pump_gui.MasterflexPumpGUI()
+    first.layout_file = str(state)
+    assert not first.restore_layout()  # nothing saved yet: main() then opens it maximized
+    first.setGeometry(QRect(0, 40, 800, 650))  # fits the 800 x 800 offscreen screen; default is 1000 x 750
+    first.show()
+    qapp.processEvents()
+    first.timer.stop()
+    first.close()  # saves on close
+    assert state.exists()
+
+    second = pump_gui.MasterflexPumpGUI()
+    second.layout_file = str(state)
+    try:
+        assert second.restore_layout()
+        assert (second.width(), second.height()) == (800, 650)
+    finally:
+        second.timer.stop()
+        second.close()  # never shown, so it doesn't overwrite the saved layout
+
+    state.write_text("not json", encoding="utf-8")
+    third = pump_gui.MasterflexPumpGUI()
+    third.layout_file = str(state)
+    try:
+        assert not third.restore_layout()  # a damaged file is ignored
+    finally:
+        third.timer.stop()
+        third.close()
+
+
+# --- Error log: pycomm3's per-message chatter stays out ----------------------------------
+
+
+def test_pycomm3_chatter_stays_out_of_the_error_log(pump_gui, tmp_path):
+    import inspect
+    import logging
+
+    import pycomm3
+
+    import crash_log
+
+    # main() quiets pycomm3 straight after setting up the log.
+    source = inspect.getsource(pump_gui.main)
+    assert source.index("quiet_chatty_loggers()") > source.index("crash_log.setup(")
+
+    root, chatty = logging.getLogger(), logging.getLogger("pycomm3")
+    saved = root.level, chatty.level
+    crash_log._reset_for_tests()
+    try:
+        path = crash_log.setup("masterflex_pump", str(tmp_path), "9.9.9", qt_dialog=False)
+        pump_gui.quiet_chatty_loggers()
+
+        class Reply:  # what the pump sends back
+            def __init__(self, error=None):
+                self.value, self.error = b"\x00" * 56, error
+
+            def __bool__(self):
+                return self.error is None
+
+        # pycomm3's own code, with the network left out: one message that works, one that fails.
+        driver = pycomm3.CIPDriver("192.0.2.1")
+        driver.send = lambda request: Reply()
+        driver.generic_message(service=b"\x0e", class_code=b"\x04", instance=100, connected=False)
+        driver.send = lambda request: Reply("pump said no")
+        driver.generic_message(service=b"\x0e", class_code=b"\x04", instance=100, connected=False)
+        logging.getLogger("pycomm3.cip_driver").info("Attempting an Extended Forward Open...")
+        logging.getLogger("pycomm3.cip_driver").warning("a pycomm3 warning")
+        pump_gui.log.info("the app's own info message")
+        for handler in root.handlers:
+            handler.flush()
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    finally:
+        crash_log._reset_for_tests()
+        root.setLevel(saved[0])
+        chatty.setLevel(saved[1])
+
+    assert "Sending generic message" not in text and "completed" not in text  # INFO: dropped
+    assert "Extended Forward Open" not in text
+    assert "ERROR pycomm3.cip_driver.CIPDriver" in text and "pump said no" in text  # errors kept
+    assert "WARNING pycomm3.cip_driver" in text and "a pycomm3 warning" in text  # warnings kept
+    assert "INFO masterflex_pump" in text and "the app's own info message" in text
+    assert "masterflex_pump 9.9.9 starting" in text
+
+
+# --- A busy pump: restart and update wait for it -----------------------------------------
+
+
+def make_busy(window, how):
+    import dispense
+
+    if how == "running":
+        window.pump_running = True
+    else:  # a Time/Volume program pausing between dispenses: the pump is still, but it's busy
+        window.dispense.state = dispense.PAUSING
+
+
+@pytest.fixture
+def restarts(pump_gui, monkeypatch):
+    """Record restarts and warning boxes instead of starting a new copy or blocking on a dialog."""
+    from PyQt6.QtCore import QProcess
+
+    events = []
+    monkeypatch.setattr(pump_gui.single_instance, "release", lambda: events.append("release"))
+    monkeypatch.setattr(QProcess, "startDetached", lambda *args: events.append("start") or True)
+    monkeypatch.setattr(pump_gui.QApplication, "quit", lambda: events.append("quit"))
+    monkeypatch.setattr(pump_gui.QMessageBox, "warning", lambda parent, title, text: events.append(text))
+    monkeypatch.setattr(pump_gui.QMessageBox, "information", lambda parent, title, text: events.append(text))
+    return events
+
+
+@pytest.mark.parametrize("how", ["running", "program"])
+def test_restart_refuses_while_the_pump_is_busy(window, restarts, how):
+    make_busy(window, how)
+    assert window.busy_reason()
+    assert window.cmd_restart_app() is False
+    assert "release" not in restarts and "start" not in restarts and "quit" not in restarts
+    assert "Stop the pump, then close and reopen the app" in restarts[-1]
+
+    window.pump_running = False
+    window.dispense.cancel()
+    assert window.busy_reason() == ""
+    restarts.clear()
+    assert window.cmd_restart_app() is True
+    assert restarts == ["release", "start", "quit"]
+
+
+def test_settings_folder_restart_checks_the_pump_first(window, pump_gui, restarts, monkeypatch, tmp_path):
+    import settings_location
+
+    # Never touch the real settings pointer: the folder change itself is faked.
+    monkeypatch.setattr(settings_location, "change", lambda *args: (str(tmp_path), [], []))
+    monkeypatch.setattr(
+        pump_gui.QMessageBox, "question", lambda *args: pump_gui.QMessageBox.StandardButton.Yes
+    )
+    dialog = pump_gui.SettingsDialog(window)
+    use_default = next(b for b in dialog.findChildren(pump_gui.QPushButton) if b.text() == "Use Default")
+
+    window.pump_running = True
+    use_default.click()  # "Restart now to load settings from the new folder?" -> Yes
+    assert "start" not in restarts and "quit" not in restarts
+    assert "The pump is running." in restarts[-1]
+
+    window.pump_running = False
+    restarts.clear()
+    use_default.click()
+    assert restarts == ["release", "start", "quit"]
+    dialog.close()
+
+
+def test_update_that_finishes_while_the_pump_runs_doesnt_restart(window, pump_gui, restarts):
+    dialog = pump_gui.SettingsDialog(window)
+    window.pump_running = True
+    dialog.on_update_done(True, "Updated to v9.9.9.")
+    assert "start" not in restarts and "quit" not in restarts
+    assert "Updated to v9.9.9." in dialog.update_status.text()
+    assert "close and reopen the app" in dialog.update_status.text()
+    dialog.close()
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        (False, "Installing the new dependencies failed, so the app went back to the version it had."),
+        OSError("git vanished"),  # update_to shouldn't raise, but if it ever does
+    ],
+)
+def test_failed_update_gives_the_button_back_and_says_why(
+    window, pump_gui, qapp, restarts, monkeypatch, outcome
+):
+    import time
+
+    import updates
+
+    def fake_update_to(root, tag, python=None):
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(updates, "can_update", lambda root: "")
+    monkeypatch.setattr(updates, "update_to", fake_update_to)
+    dialog = pump_gui.SettingsDialog(window)
+    monkeypatch.setattr(dialog, "confirm", lambda *a: True)
+    dialog.on_update_checked(updates.Release("9.0.0", "v9.0.0", "", updates.RELEASES_URL), "")
+    assert not dialog.update_btn.isEnabled()  # while it runs
+    deadline = time.monotonic() + 10
+    while not dialog.update_btn.isEnabled() and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+
+    assert dialog.update_btn.isEnabled()
+    expected = "went back to the version it had" if isinstance(outcome, tuple) else "git vanished"
+    assert expected in dialog.update_status.text()
+    assert expected in restarts[-1]  # shown in a warning box too
+    assert "start" not in restarts  # no restart after a failed update
+    dialog.close()
