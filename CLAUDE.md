@@ -6,7 +6,7 @@ Machine-specific notes (clone paths, machine names) go in `CLAUDE.local.md`, whi
 
 ## Run / build / check
 - `python -m venv .venv`, then `pip install -e ".[dev]"` (or `pip install -r requirements.txt` to just run it)
-- Run: `python pump_gui.py`, or the `Launch_Windows.bat` / `Launch_Mac.command` launchers (they use `.venv`). Build: `python build_app.py` → `dist/`
+- Run: `python pump_gui.py`, or the `Launch_Windows.bat` / `Launch_Mac.command` launchers (they use `.venv`, and create it the first time like the `Setup_*` repair scripts). Build: `python build_app.py` → `dist/`
 - Before committing: `ruff check . && ruff format --check . && pytest` (tests run headless with `QT_QPA_PLATFORM=offscreen`; no pump needed)
 - Version lives only in `pump_gui.py` (`__version__`). Release steps are in README "Development"; update `CHANGELOG.md`.
 
@@ -18,7 +18,9 @@ Machine-specific notes (clone paths, machine names) go in `CLAUDE.local.md`, whi
 ## Code map
 - `pump_gui.py` (~1,700 lines): `SettingsDialog` (tabs Hardware / App / Firmware / Documentation), `MasterflexPumpGUI(QMainWindow)`, `main()`. Importing it has no side effects; `main()` makes folders and `chdir`s.
 - Comms thread: `poll_pump_data` → `_poll_once` = `_read_input`, `_run_program` (ticks the Time/Volume program), `_send_output`. Failures go through `_report_comm` → `link_state_signal`. `output_data` and `self.dispense` are shared with the UI thread under `ctrl_lock`; always change output bits with `proto.set_bit` inside that lock. Connect runs in a thread (`connect_result_signal`); `disconnect()` sends Stop and logs END first.
+- `busy_reason()` (pump running or a Time/Volume program active) blocks Check for Updates and every restart: `cmd_restart_app` refuses while it's set. `main()` calls `quiet_chatty_loggers()` after `crash_log.setup()`: pycomm3 logs each generic message at INFO (~40 lines/s), so it's held at WARNING.
 - `protocol.py` byte maps and unit helpers; `dispense.py` Time/Volume programs (the drive always stays in continuous mode, byte 4 = 0, because it locks up when switched over EtherNet/IP); `runlog.py` CSV logs keyed by column name; `updates.py` GitHub releases + git fast-forward; `shortcuts.py` desktop icon per OS; `settings_location.py` is shared (identical copy in every UAkron repo, excluded from ruff).
+- Also shared byte-for-byte (never edit them here): `crash_log.py`, `single_instance.py` (one copy at a time; `main()` takes the lock, `cmd_restart_app` releases it before relaunching) and `diagnostics.py` (⚙ → App → Open Log Folder / Copy Diagnostics; `pump_gui.hide_network_details` strips the pump's address and host names on top of its redaction). Window geometry goes in the gitignored, machine-local `window_state.json` in the app folder, not the settings folder.
 - Icons in `assets/` (`pump.png` window, `pump.ico` Windows, `pump.icns` macOS). Tests use `FakePump` and the `connected` fixture from `tests/conftest.py`; no pump needed.
 
 ## Where code and data live

@@ -23,16 +23,21 @@ DATA_DIR = os.environ.get("UAKRON_APP_DATA_DIR") or os.path.join(
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 import crash_log
+import diagnostics
 import dispense
 import protocol as proto
 import runlog
 import settings_location
 import shortcuts
+import single_instance
 import updates
 
 APP_DIR = settings_location.app_folder(script_dir)
 CONFIG_DIR = settings_location.resolve(APP_DIR, DATA_DIR)
 SETTINGS_FILES = ["pump_config.json"]
+# Window size and position: this computer only, so it stays in the app folder (gitignored)
+# even when the settings above are in a synced folder.
+WINDOW_STATE_FILE = os.path.join(APP_DIR, "window_state.json")
 # Run logs are data: kept in Data/ inside the pump's data folder.
 LOG_DIR = os.path.join(DATA_DIR, "Data")
 RUN_LOG = os.path.join(LOG_DIR, "run_log.csv")
@@ -41,14 +46,16 @@ ASSETS = os.path.join(script_dir, "assets")
 APP_NAME = "Masterflex REGLO Pump Control"
 
 import json
+import logging
 import platform
+import re
 import shutil
 import subprocess
 import threading
 import time
 import webbrowser
 
-from PyQt6.QtCore import QObject, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QByteArray, QObject, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -107,6 +114,32 @@ VERSION_STYLE_OLD = (
 )
 FLOW_UNITS = proto.FLOW_UNITS
 TUBE_CODES_MM = proto.TUBE_CODES_MM
+log = logging.getLogger("masterflex_pump")
+
+# pycomm3 logs every message it sends at INFO ("Sending generic message", "... completed"): about
+# 40 lines a second while connected, which fills the 3 x 1 MB error log in about ten minutes and
+# pushes real errors out of it. Its warnings and errors still go to the log. Its own loggers
+# (pycomm3.cip_driver.CIPDriver, pycomm3.cip_driver, ...) don't set a level, so they take this one.
+CHATTY_LOGGERS = ("pycomm3",)
+
+
+def quiet_chatty_loggers():
+    """Keep libraries' routine INFO messages out of the error log. main() calls this right after
+    crash_log.setup(); the app's own INFO messages still go in."""
+    for name in CHATTY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+# Copy Diagnostics leaves out the pump's address and other network names (they're private).
+HIDDEN = "[hidden]"
+_IPV4 = re.compile(r"(?<!\d)(?<!\d\.)(?:\d{1,3}\.){3}\d{1,3}(?!\d)(?!\.\d)")  # not part of a longer number
+
+
+def hide_network_details(text, names=()):
+    """Replace IP addresses and the given host or computer names in ``text`` with [hidden]."""
+    for name in sorted({str(n).strip() for n in names if n and str(n).strip()}, key=len, reverse=True):
+        text = re.sub(rf"(?<![\w-]){re.escape(name)}(?![\w-])", HIDDEN, text, flags=re.IGNORECASE)
+    return _IPV4.sub(HIDDEN, text)
 
 
 def open_path(path):
@@ -232,6 +265,14 @@ class SettingsDialog(QDialog):
         self.update_status.setWordWrap(True)
         self.update_status.setStyleSheet("color: grey;")
         app_layout.addWidget(self.update_status)
+        self.check_on_start_cb = QCheckBox("Check for updates when the app starts")
+        self.check_on_start_cb.setToolTip(
+            "Asks GitHub for the latest release at start-up and once a day. If there is one, the "
+            "version (bottom right) turns orange. Nothing is installed until you choose to update."
+        )
+        self.check_on_start_cb.setChecked(parent.check_updates_on_start())
+        self.check_on_start_cb.toggled.connect(parent.set_check_updates_on_start)
+        app_layout.addWidget(self.check_on_start_cb)
 
         self.shortcut_btn = QPushButton(shortcuts.button_label())
         self.shortcut_btn.clicked.connect(self.on_create_shortcut)
@@ -244,6 +285,27 @@ class SettingsDialog(QDialog):
         self.shortcut_status.setStyleSheet("color: grey;")
         self.shortcut_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         app_layout.addWidget(self.shortcut_status)
+
+        # For bug reports: the error log, and a summary to paste into an issue or email.
+        diag_row = QHBoxLayout()
+        self.log_folder_btn = QPushButton("Open Log Folder")
+        self.log_folder_btn.setToolTip("Opens the folder with the app's error log (masterflex_pump.log).")
+        self.log_folder_btn.clicked.connect(self.on_open_log_folder)
+        diag_row.addWidget(self.log_folder_btn)
+        self.copy_diag_btn = QPushButton("Copy Diagnostics")
+        self.copy_diag_btn.setToolTip(
+            "Copies the app version, system details, folders and the end of the error log, "
+            "for a bug report. The pump's address is left out."
+        )
+        self.copy_diag_btn.clicked.connect(self.on_copy_diagnostics)
+        diag_row.addWidget(self.copy_diag_btn)
+        app_layout.addLayout(diag_row)
+        self.diag_status = QLabel(
+            "Something not working? Copy Diagnostics and paste it into a GitHub issue or an email."
+        )
+        self.diag_status.setWordWrap(True)
+        self.diag_status.setStyleSheet("color: grey;")
+        app_layout.addWidget(self.diag_status)
         app_layout.addStretch()
         self.tabview.addTab(app_tab, "App")
 
@@ -326,7 +388,7 @@ class SettingsDialog(QDialog):
                 webbrowser.open(release.url)
             return
         main = self.parent()
-        if main.pump_running or main.dispense.active:
+        if main.busy_reason():
             self.update_status.setText(f"Version {release.version} is available. Stop the pump, then update.")
             return
         notes = release.notes.strip()
@@ -343,10 +405,16 @@ class SettingsDialog(QDialog):
             return
         self.update_btn.setEnabled(False)
         self.update_status.setText(f"Updating to {release.version}...")
-        threading.Thread(
-            target=lambda: self.bridge.update_done.emit(*updates.update_to(script_dir, release.tag)),
-            daemon=True,
-        ).start()
+
+        def work():
+            try:
+                ok, message = updates.update_to(script_dir, release.tag)
+            except Exception as e:  # update_to doesn't raise, but the button must come back regardless
+                log.exception("Update to %s failed", release.tag)
+                ok, message = False, f"The update stopped with an error: {e}"
+            self.bridge.update_done.emit(ok, message)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def on_update_done(self, ok, message):
         self.update_btn.setEnabled(True)
@@ -354,11 +422,30 @@ class SettingsDialog(QDialog):
         if not ok:
             QMessageBox.warning(self, "Update", message)
             return
+        main = self.parent()
+        busy = main.busy_reason()
+        if busy:  # e.g. started from the pump's touchscreen while the update ran
+            text = f"{message}\n\n{busy} Stop it, then close and reopen the app to start the new version."
+            self.update_status.setText(text)
+            QMessageBox.information(self, "Update", text)
+            return
         QMessageBox.information(self, "Update", f"{message}\n\nThe app will restart now.")
-        self.parent().cmd_restart_app()
+        main.cmd_restart_app()
 
     def confirm(self, title, text):
         return QMessageBox.question(self, title, text) == QMessageBox.StandardButton.Yes
+
+    # --- Diagnostics --------------------------------------------------------------------
+
+    def on_open_log_folder(self):
+        try:
+            diagnostics.open_folder(diagnostics.log_folder(crash_log.log_path()))
+        except OSError as e:
+            self.diag_status.setText(f"Couldn't open the log folder: {e}")
+
+    def on_copy_diagnostics(self):
+        QApplication.clipboard().setText(self.parent().diagnostics_text())
+        self.diag_status.setText("Diagnostics copied. Paste them into a GitHub issue or an email.")
 
     # --- Desktop icon -------------------------------------------------------------------
 
@@ -456,6 +543,8 @@ class MasterflexPumpGUI(QMainWindow):
 
         # Time/Volume programs run in software; the drive itself stays in continuous mode.
         self.dispense = dispense.DispenseController()
+        self.pump_model = ""  # product name reported by Search Network, for Copy Diagnostics
+        self.layout_file = None  # where to remember the window's size and position (set by main())
 
         # Settings
         self.config_file = os.path.join(CONFIG_DIR, "pump_config.json")
@@ -1055,6 +1144,7 @@ class MasterflexPumpGUI(QMainWindow):
 
     def closeEvent(self, event):
         self._closing = True
+        self.save_layout()
         self.save_all_settings()
         self.disconnect(reason="closed")
         event.accept()
@@ -1146,13 +1236,105 @@ class MasterflexPumpGUI(QMainWindow):
         self.config_data["desktop_icons"] = icons
         self.save_all_settings()
 
+    def busy_reason(self):
+        """Why restarting or updating now would interrupt something, in plain words; "" if it
+        wouldn't. Restarting disconnects, and disconnecting stops the pump and any program."""
+        if self.dispense.active:  # includes the pauses between dispenses, when the pump is still
+            return "A Time/Volume program is running."
+        if self.pump_running:
+            return "The pump is running."
+        return ""
+
     def cmd_restart_app(self):
+        """Start a fresh copy of the app and close this one. Every restart comes through here
+        (Update and Restart, changing the settings folder), so it refuses while the pump is busy,
+        like Check for Updates does. Returns False if it didn't restart."""
+        busy = self.busy_reason()
+        if busy:
+            self.log_msg(f"Didn't restart the app. {busy}")
+            QMessageBox.warning(
+                QApplication.activeModalWidget() or self,  # in front of the Settings window
+                "Restart",
+                f"{busy} Restarting now would stop it, so the app didn't restart.\n\n"
+                "Stop the pump, then close and reopen the app.",
+            )
+            return False
         self.save_all_settings()
+        self.save_layout()
         self.disconnect(reason="restarted")
         from PyQt6.QtCore import QProcess
 
+        # Let the new copy take the single-instance lock (otherwise it sees this one and quits).
+        single_instance.release()
         QProcess.startDetached(*relaunch_command())
         QApplication.quit()
+        return True
+
+    # --- Window layout (this computer only) ----------------------------------------------
+
+    def restore_layout(self):
+        """Put the window back where it was last time. False if nothing was saved here yet.
+        Qt moves a window that would be off-screen (e.g. a monitor was unplugged) back onto one."""
+        if not self.layout_file:
+            return False
+        try:
+            with open(self.layout_file, encoding="utf-8") as f:
+                saved = json.load(f)["geometry"]
+            geometry = QByteArray.fromBase64(saved.encode("ascii"))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return False
+        return bool(self.restoreGeometry(geometry))
+
+    def save_layout(self):
+        """Remember the window's size, position and maximized state (on close and restart)."""
+        if not self.layout_file or not self.isVisible():
+            return
+        state = {"geometry": bytes(self.saveGeometry().toBase64()).decode("ascii")}
+        tmp = self.layout_file + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2)
+            os.replace(tmp, self.layout_file)
+        except OSError as e:  # only a convenience: never stop the app closing over it
+            log.warning("Couldn't save the window layout: %s", e)
+
+    # --- Update check at start-up (the App tab's checkbox) -------------------------------
+
+    def check_updates_on_start(self):
+        return bool(self.config_data.get("check_updates_on_start", True))
+
+    def set_check_updates_on_start(self, on):
+        self.config_data["check_updates_on_start"] = bool(on)
+        self.save_all_settings()
+        timer = getattr(self, "_update_timer", None)  # the daily re-check, if it was started
+        if timer is not None:
+            if on:
+                timer.start()
+            else:
+                timer.stop()
+
+    # --- Copy Diagnostics ---------------------------------------------------------------
+
+    def diagnostics_text(self):
+        """Text for Copy Diagnostics. Leaves out the pump's address and the computer's name."""
+        if self.connected:
+            pump = "connected" if self.link_ok else "connected, but not answering"
+        else:
+            pump = "not connected"
+        text = diagnostics.report(
+            APP_NAME,
+            __version__,
+            APP_DIR,
+            settings_dir=CONFIG_DIR,
+            data_dir=DATA_DIR,
+            log_path=crash_log.log_path(),
+            extra={
+                "Pump": pump,
+                "Pump model": self.pump_model or "unknown (Search Network shows it)",
+                "pycomm3": getattr(sys.modules.get("pycomm3"), "__version__", "not installed"),
+            },
+        )
+        return hide_network_details(text, [self.ip_entry.text(), self.config_data.get("ip"), platform.node()])
 
     def update_button_styles(self):
         use_icons = self.config_data.get("use_icons", True)
@@ -1306,6 +1488,7 @@ class MasterflexPumpGUI(QMainWindow):
                 prod_name = dev.get("product_name", "").lower()
                 if "reglo" in prod_name or "masterflex" in prod_name or "pump" in prod_name:
                     found_ip = dev.get("ip_address")
+                    self.pump_model = str(dev.get("product_name") or "")
                     self.signals.log_msg_signal.emit(
                         f"Found MasterFlex ({dev.get('product_name')}) at {found_ip}"
                     )
@@ -1928,15 +2111,26 @@ def main():
     _detach_from_terminal()
     os.makedirs(LOG_DIR, exist_ok=True)
     crash_log.setup("masterflex_pump", os.path.join(DATA_DIR, "logs"), __version__)  # errors -> logs/
+    quiet_chatty_loggers()  # pycomm3's per-message INFO lines would push real errors out of the log
     os.chdir(DATA_DIR)  # relative paths (e.g. in file dialogs) start in the data folder
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)
+    # Only one copy at a time: two copies would both send commands to the same pump.
+    guard = single_instance.acquire(APP_NAME)
+    if guard is None:  # already running; that copy was asked to come to the front
+        return 0
     app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
     app.setWindowIcon(QIcon(os.path.join(ASSETS, "pump.png")))
     window = MasterflexPumpGUI()
-    window.showMaximized()
-    QTimer.singleShot(1500, window.start_update_check)
+    guard.set_window(window)
+    window.layout_file = WINDOW_STATE_FILE
+    if window.restore_layout():
+        window.show()
+    else:
+        window.showMaximized()  # first start on this computer
+    if window.check_updates_on_start():
+        QTimer.singleShot(1500, window.start_update_check)
     QTimer.singleShot(2500, window.ensure_desktop_icon)
     return app.exec()
 

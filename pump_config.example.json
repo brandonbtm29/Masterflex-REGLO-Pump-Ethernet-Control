@@ -11,6 +11,7 @@
   "batch": "1",
   "notes": "",
   "use_icons": true,
+  "check_updates_on_start": true,
   "monitor_order": ["flow", "vol", "calc_time", "rpm", "batch"],
   "metadata_tokens": {
     "Column Name": "",

@@ -48,15 +48,28 @@ any REGLO with Advanced Connectivity (models 78018-10, 78018-12, 78018-40 and si
 - **Firmware helper**: copies a firmware file you downloaded onto a USB drive and shows the
   update steps for the pump.
 - **Knows when it's out of date**: the version is shown bottom right and turns orange when a
-  newer release is on GitHub. **One-click updates** in ⚙ → App.
+  newer release is on GitHub (checked at start-up and daily; you can turn that off in ⚙ → App).
+  **One-click updates** in ⚙ → App.
+- **Only one copy at a time**: opening the app again brings the open window to the front instead
+  of starting a second copy, so two copies can never send commands to the same pump.
+- **Remembers its window**: size, position and whether it was maximized, per computer.
 - **Desktop icon** with the pump logo (a Mac app, a Windows shortcut, a Linux menu entry),
   added the first time the app runs and kept up to date. It starts the app with no console or
   Terminal window.
-- **Double-click launchers** for Windows and macOS.
+- **Double-click launchers** for Windows and macOS that set the app up the first time.
+- **Bug reports in one paste**: ⚙ → App → **Copy Diagnostics** copies the version, system details
+  and the end of the error log (without the pump's address); **Open Log Folder** shows the log.
 
 ## Quick start
 
-**Easiest:** double-click `Setup_Windows.bat` (Windows) or `Setup_Mac.command` (macOS) once. It creates the `.venv` folder and installs everything the app needs; run it again any time to repair or update the packages. The manual steps follow.
+**Easiest:** download or clone the app, then double-click `Launch_Windows.bat` (Windows) or
+`Launch_Mac.command` (macOS). The first time, it sets itself up: it creates the `.venv` folder and
+installs everything the app needs (this takes a minute or two, in a window you can watch), then
+starts the app. After that it just starts the app. If something goes wrong, the window stays open
+and says what happened.
+
+`Setup_Windows.bat` / `Setup_Mac.command` are for **repair or reinstall**: run one if the app
+stops starting, for example after a Python upgrade. The manual steps follow.
 
 You need Python 3.11 or newer and the pump on the same network as your computer.
 
@@ -103,7 +116,7 @@ In the app: enter the pump's IP address (or click the search button), click **Co
 | Save Selected / Delete Selected | Writes chosen runs from the history to the CSV log, or removes them from the history and `run_log_backup.csv` (after asking; the previous file is kept as `.bak`) |
 | Open Log Folder / Open Log File | Opens the data folder or the CSV log |
 | ⚙ → Hardware | Maximum drive RPM (for the RPM estimate), icon buttons, the settings folder |
-| ⚙ → App | Version, **Check for Updates**, and a button to add the desktop icon again |
+| ⚙ → App | Version, **Check for Updates**, **Check for updates when the app starts** (on by default), a button to add the desktop icon again, **Open Log Folder** (the error log) and **Copy Diagnostics** |
 | Version (bottom right) | Turns orange when a newer release exists; click it to get to Check for Updates |
 | ⚙ → Firmware | Copies a firmware file onto a USB drive and shows the pump's update steps |
 
@@ -112,6 +125,9 @@ In the app: enter the pump's IP address (or click the search button), click **Co
 The app keeps your **data** apart from the code:
 
 - **Error log**: errors, with tracebacks (also from background threads), go to `logs/masterflex_pump.log` in the data folder. An unexpected error is shown in a dialog and the app keeps running instead of closing. A hard crash (e.g. in a driver) leaves a `.fatal.log` next to it.
+  The log also has the app's own notes (start-up, updates) and pycomm3's warnings and errors,
+  but not pycomm3's routine line for every message to the pump (about 40 a second), so older
+  errors aren't pushed out. It keeps three files of 1 MB.
 - **Data folder**: `~/SyncThing/UAkron Playground/MasterFlex Pump` by default (it's created if
   missing). Run logs go in its `Data/` folder: `run_log.csv` (runs you chose to save) and
   `run_log_backup.csv` (every run). To use a different folder, set the environment variable
@@ -121,8 +137,13 @@ The app keeps your **data** apart from the code:
   crash can't leave half a file; if it ever can't be read, the app keeps a copy
   (`pump_config.json.unreadable-<time>`), starts from defaults and says so in the event log. In ⚙ → **Settings Folder** you
   can move it, for example into a synced folder so several computers share the same settings.
+  The app then offers to restart, but not while the pump is running or a Time/Volume program is
+  in progress (restarting would stop it): stop the pump, then close and reopen the app.
   That choice is stored per computer in `settings_location.json`. The environment variable
   `UAKRON_SETTINGS_DIR` overrides it.
+- **Window size and position**: `window_state.json` in the app's folder. It belongs to this
+  computer, so it never moves to the synced settings folder (a laptop and a lab PC have different
+  screens).
 
 Neither settings nor logs are committed to git.
 
@@ -141,6 +162,7 @@ The app writes `pump_config.json` itself; you don't need to edit it.
 | `flow`, `vol`, `on_time`, `off_time`, `batch` | Last parameter values |
 | `notes` | Experiment notes box |
 | `use_icons` | Icon buttons instead of text |
+| `check_updates_on_start` | Ask GitHub for a newer release at start-up and daily (default `true`) |
 | `monitor_order` | Order of the dashboard tiles |
 | `metadata_tokens` | Metadata fields and their values, in order |
 
@@ -160,6 +182,8 @@ the latest status on its own 100 ms timer, so a busy window can't delay a stop.
 | `updates.py` | Checking GitHub releases and updating a git clone |
 | `shortcuts.py` | The desktop icon for macOS, Windows and Linux |
 | `settings_location.py` | Where settings live (shared with other lab apps) |
+| `single_instance.py` | Only one copy at a time (shared with other lab apps) |
+| `diagnostics.py` | Open Log Folder and Copy Diagnostics (shared with other lab apps) |
 
 Three things about the REGLO make this different from talking to a PLC:
 
@@ -217,10 +241,19 @@ Three things about the REGLO make this different from talking to a PLC:
 - **RPM is an estimate.** The pump doesn't report its speed; the app scales the flow by the
   pump's maximum flow for the fitted tube, reached at the Max Drive RPM set in ⚙ → Hardware.
 - **Updates come from GitHub releases** and only work for a git clone with no hand-edited
-  files. A built app (`.exe`/`.app`) links to the releases page instead.
+  files. If a release changes the packages the app needs (`requirements.txt` or
+  `pyproject.toml`), the update installs them the same way Setup does. If that install fails,
+  can't start or takes more than 15 minutes, the app goes back to the version it had and says
+  why. Git never waits for a sign-in it can't show (the app has no console). A built app
+  (`.exe`/`.app`) links to the releases page instead.
 - **No console window** means errors can't be printed; they go to `logs/masterflex_pump.log` in
-  the data folder (and a dialog). If the app won't open at all, run `Launch_Windows.bat` /
-  `Launch_Mac.command`: they check the packages first and say what's missing.
+  the data folder (and a dialog). ⚙ → App → **Open Log Folder** opens it, and **Copy
+  Diagnostics** copies what's needed for a bug report (paste it into a GitHub issue or an
+  email). If the app won't open at all, run `Launch_Windows.bat` / `Launch_Mac.command`: they
+  check the packages first and say what's missing; `Setup_Windows.bat` / `Setup_Mac.command`
+  reinstall them.
+- **Nothing happens when you open it?** It's probably already open: only one copy runs at a time,
+  and opening it again brings that window forward (it may be minimized or on another desktop).
 - **USB is for firmware only.** The REGLO's USB port can't control the pump, and the older
   `masterflex-serial` library for L/S and I/P pumps doesn't work with this series.
 - **No security on the pump.** Anyone on the same network can control it. Keep it on a lab
