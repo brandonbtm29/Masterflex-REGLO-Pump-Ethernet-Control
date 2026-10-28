@@ -7,6 +7,44 @@ the last, and changes that break existing settings or workflows bump the first.
 
 ## [Unreleased]
 
+### Added
+- **Only one copy at a time.** Two copies of the app controlling the same pump would both send
+  it commands every 100 ms, so one could keep starting the pump while the other stops it.
+  Opening the app while it's already open now brings the open window to the front instead.
+  Restart, Update and Restart, and changing the settings folder hand over to the new copy
+  cleanly.
+- **Open Log Folder and Copy Diagnostics** in ⚙ → App. Copy Diagnostics copies the version,
+  system details, the app's folders, whether the pump is connected, the pump model (if Search
+  Network found it) and the end of the error log, ready to paste into a GitHub issue or an
+  email. The pump's IP address, its network name and the computer's name are left out.
+- **Check for updates when the app starts**: a new option in ⚙ → App (on by default). Turn it
+  off and the app only checks when you click Check for Updates.
+- **The window remembers its size and position** (and whether it was maximized) on each
+  computer. This is kept in `window_state.json` in the app's folder, not in the synced
+  settings, so a laptop and a lab PC each keep their own.
+
+### Changed
+- **The launchers set the app up the first time.** Double-click `Launch_Windows.bat` or
+  `Launch_Mac.command` on a new computer and it creates the `.venv` and installs what the app
+  needs (a minute or two), then starts the app. If something goes wrong, the window stays open
+  and says what happened. The `Setup_*` scripts are now only needed to repair or reinstall.
+- **Updates reinstall the app's packages when a release changes `pyproject.toml` too**, not
+  only `requirements.txt`, and install them the same way the Setup scripts do.
+
+### Fixed
+- **The error log keeps older errors.** The pump library wrote a line for every message to the
+  pump (about 40 a second), so the log only reached back about ten minutes and Copy
+  Diagnostics showed nothing but those lines. They're left out now; the library's warnings and
+  errors still go in.
+- **A failed update always goes back to the version you had.** Before, if installing the new
+  packages took more than 15 minutes or couldn't start, the app was left half-updated and the
+  Check for Updates button stayed greyed out. Now any failure after the download puts the app
+  back as it was, says why, and the button works again. Git also no longer waits for a sign-in
+  window that can't appear.
+- **Changing the settings folder no longer restarts the app while the pump is running** or a
+  Time/Volume program is in progress (restarting would stop it). The app says so instead, like
+  Update does; stop the pump, then close and reopen the app.
+
 ## [1.2.0] - 2026-10-17
 
 Shows when it's out of date, keeps its desktop icon current, runs without a console window,
