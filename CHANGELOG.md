@@ -7,6 +7,8 @@ the last, and changes that break existing settings or workflows bump the first.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-28
+
 ### Added
 - **Only one copy at a time.** Two copies of the app controlling the same pump would both send
   it commands every 100 ms, so one could keep starting the pump while the other stops it.
