@@ -1,6 +1,8 @@
 @echo off
-rem One-click setup for Masterflex Pump Control: creates this folder's own Python environment (.venv)
-rem and installs everything the app needs. Run it again any time to repair or update it.
+rem Repair or reinstall Masterflex Pump Control. You don't need this to start the app the first
+rem time: Launch_Windows.bat sets itself up. Run this if the app stops starting (for example after
+rem a Python upgrade): it creates this folder's own Python environment (.venv) if it's missing and
+rem installs everything the app needs again.
 cd /d "%~dp0"
 echo Setting up Masterflex Pump Control in %CD%
 echo.

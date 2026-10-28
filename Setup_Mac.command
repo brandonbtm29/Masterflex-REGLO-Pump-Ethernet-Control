@@ -1,6 +1,8 @@
 #!/bin/bash
-# One-click setup for Masterflex Pump Control on macOS: creates this folder's own Python environment
-# (.venv) and installs everything the app needs. Run it again any time to repair or update it.
+# Repair or reinstall Masterflex Pump Control on macOS. You don't need this to start the app the
+# first time: Launch_Mac.command sets itself up. Run this if the app stops starting (for example
+# after a Python upgrade): it creates this folder's own Python environment (.venv) if it's missing
+# and installs everything the app needs again.
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
 fail() { echo; echo "$1"; read -r -p "Press Enter to close"; exit 1; }
 new_enough() { "$1" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; }
