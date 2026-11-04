@@ -71,12 +71,10 @@ def test_unit_and_direction_bits(window, pump_gui):
     window.cmd_update_unit("uL/min")
     assert window.output_data[6] == 6
 
-    window.dir_checkbox.setChecked(True)
-    window.cmd_update_direction()
-    assert window.output_data[0] & 0b01000000
-    window.dir_checkbox.setChecked(False)
-    window.cmd_update_direction()
+    window.dir_cw_radio.setChecked(True)
     assert not window.output_data[0] & 0b01000000
+    window.dir_ccw_radio.setChecked(True)
+    assert window.output_data[0] & 0b01000000
 
 
 def test_flow_outside_the_pumps_limits_is_refused(connected):
@@ -690,9 +688,9 @@ def test_changing_direction_while_running_can_be_cancelled(connected, monkeypatc
     window, pump = connected
     running(window, pump)
     monkeypatch.setattr(window, "_confirm", lambda *a: False)
-    ccw = window.dir_checkbox.isChecked()
-    window.dir_checkbox.click()
-    assert window.dir_checkbox.isChecked() == ccw
+    assert window.dir_ccw_radio.isChecked()
+    window.dir_cw_radio.click()
+    assert window.dir_ccw_radio.isChecked()  # put back
     assert window.output_data[0] & 1
 
 
@@ -786,7 +784,7 @@ def test_divider_positions_are_remembered(pump_gui, qapp, tmp_path):
     first.setGeometry(QRect(0, 40, 800, 650))
     first.show()
     qapp.processEvents()
-    first.main_splitter.setSizes([320, 480])
+    first.main_splitter.setSizes([380, 420])
     qapp.processEvents()
     first.timer.stop()
     first.close()
@@ -797,8 +795,68 @@ def test_divider_positions_are_remembered(pump_gui, qapp, tmp_path):
         assert second.restore_layout()
         second.show()
         qapp.processEvents()
-        assert abs(second.main_splitter.sizes()[0] - 320) <= 2
+        assert abs(second.main_splitter.sizes()[0] - 380) <= 2
     finally:
         second.layout_file = None
         second.timer.stop()
         second.close()
+
+
+# --- Parameters: numbers only, units shown, whole-program estimate -------------------------
+
+
+def test_parameter_boxes_take_numbers_only(window):
+    from PyQt6.QtGui import QValidator
+
+    for entry in (window.flow_entry, window.volume_entry, window.on_time_entry, window.off_time_entry):
+        validator = entry.validator()
+        assert validator.validate("abc", 0)[0] == QValidator.State.Invalid
+        assert validator.validate("-1", 0)[0] == QValidator.State.Invalid
+        assert validator.validate("2.5", 0)[0] == QValidator.State.Acceptable
+    assert window.batch_entry.validator().validate("1.5", 0)[0] != QValidator.State.Acceptable
+
+
+def test_program_estimate(pump_gui):
+    estimate = pump_gui.program_estimate
+    # Volume: 10 mL at 5 mL/min = 2:00 each; 3 dispenses with two 30 s pauses = 7:00
+    text = estimate(2, "mL/min", flow="5", volume="10", on_time="0", off_time="30", batch="3")
+    assert "2:00 per dispense" in text and "3 dispenses, 2 pauses): ≈ 7:00" in text
+    # Time: 30 s at 6 mL/min pumps 3 mL each
+    text = estimate(1, "mL/min", flow="6", volume="0", on_time="30", off_time="0", batch="1")
+    assert text == "≈ 3 mL per dispense"
+    assert "Repeats until stopped" in estimate(
+        1, "mL/min", flow="6", volume="0", on_time="30", off_time="5", batch="0"
+    )
+    empty_flow = estimate(2, "mL/min", flow="", volume="10", on_time="0", off_time="0", batch="1")
+    assert empty_flow == "Est. Time: --"
+    assert "RPM" in estimate(2, "RPM", flow="50", volume="10", on_time="0", off_time="0", batch="1")
+    assert estimate(0, "mL/min", flow="5", volume="1", on_time="1", off_time="0", batch="1") == ""
+
+
+def test_estimate_and_units_follow_the_boxes(window):
+    from PyQt6.QtWidgets import QLabel
+
+    window.mode_radio2.setChecked(True)
+    window.update_parameter_visibility()
+    window.flow_entry.setText("5")
+    window.volume_entry.setText("10")
+    window.batch_entry.setText("2")
+    window.off_time_entry.setText("60")
+    assert "≈ 5:00" in window.lbl_est_time.text()  # 2 x 2:00 + 1:00
+    labels = [w.text() for w in window.params_layout.parentWidget().findChildren(QLabel)]
+    assert "Dispense Volume (mL):" in labels
+    window.unit_menu.setCurrentText("uL/min")
+    labels = [w.text() for w in window.params_layout.parentWidget().findChildren(QLabel)]
+    assert "Dispense Volume (uL):" in labels
+
+
+def test_direction_is_a_clear_choice_and_is_saved(window, pump_gui):
+    window.dir_cw_radio.setChecked(True)
+    window.save_all_settings()
+    assert window.config_data["direction"] == "CW"
+    again = pump_gui.MasterflexPumpGUI()
+    try:
+        assert again.dir_cw_radio.isChecked() and not again.dir_ccw_radio.isChecked()
+    finally:
+        again.timer.stop()
+        again.close()

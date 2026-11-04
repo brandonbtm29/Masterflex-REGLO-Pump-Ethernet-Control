@@ -55,8 +55,16 @@ import threading
 import time
 import webbrowser
 
-from PyQt6.QtCore import QByteArray, QObject, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon, QKeySequence, QShortcut, QTextCursor
+from PyQt6.QtCore import QByteArray, QLocale, QObject, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import (
+    QColor,
+    QDoubleValidator,
+    QIcon,
+    QIntValidator,
+    QKeySequence,
+    QShortcut,
+    QTextCursor,
+)
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -124,6 +132,49 @@ MODE_NAMES = ["Continuous", "Time", "Volume"]
 FLOW_UNITS = proto.FLOW_UNITS
 TUBE_CODES_MM = proto.TUBE_CODES_MM
 log = logging.getLogger("masterflex_pump")
+
+
+def number_validator(parent):
+    """Accept plain decimal numbers (0 or more) with a dot, whatever the computer's locale."""
+    validator = QDoubleValidator(0.0, 1e9, 6, parent)
+    validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+    validator.setLocale(QLocale.c())
+    return validator
+
+
+def _duration(seconds):
+    """'0.5 s' for short times, else '1:15' / '1:02:05'."""
+    return f"{seconds:.1f} s" if seconds < 10 else dispense.format_seconds(seconds)
+
+
+def program_estimate(mode, unit, *, flow, volume, on_time, off_time, batch):
+    """The Parameters box's estimate line, from the text in its boxes. Time mode: the volume each
+    dispense pumps. Volume mode: how long each dispense takes. Both: the whole program."""
+    try:
+        flow, volume, on_time = float(flow), float(volume), float(on_time)
+        off_time, batch = float(off_time or 0), int(batch or 0)
+    except ValueError:
+        return "Est. Time: --"
+    per = proto.unit_seconds(unit)  # None for RPM and %: no volume per second to work from
+    if mode == dispense.TIME:
+        each = on_time
+        if per and flow > 0:
+            amount = f"≈ {flow * on_time / per:.4g} {proto.volume_unit(unit)} per dispense"
+        else:
+            amount = f"{_duration(each)} per dispense"
+    elif mode == dispense.VOLUME:
+        if not per or flow <= 0 or volume <= 0:
+            return "Est. Time: --" if per else "Est. Time: can't estimate for RPM or %"
+        each = volume / flow * per
+        amount = f"Est. Time: {_duration(each)} per dispense"
+    else:
+        return ""
+    if batch <= 0:
+        return f"{amount}\nRepeats until stopped."
+    if batch == 1:
+        return amount
+    total = batch * each + (batch - 1) * max(off_time, 0)
+    return f"{amount}\nWhole program ({batch} dispenses, {batch - 1} pauses): ≈ {_duration(total)}"
 
 
 def button_style(color, *, big=False):
@@ -794,7 +845,7 @@ class MasterflexPumpGUI(QMainWindow):
 
         # 2. Controls Frame
         controls_group = CollapsibleBox("Operational Controls")
-        controls_layout = QGridLayout(controls_group.content_area)
+        controls_layout = QVBoxLayout(controls_group.content_area)
 
         self.mode_group = QButtonGroup(self)
         self.mode_radio0 = QRadioButton("Continuous")
@@ -808,16 +859,31 @@ class MasterflexPumpGUI(QMainWindow):
 
         self.mode_group.idClicked.connect(self.cmd_update_mode)
 
-        controls_layout.addWidget(QLabel("Mode:"), 0, 0)
-        controls_layout.addWidget(self.mode_radio0, 0, 1)
-        controls_layout.addWidget(self.mode_radio1, 0, 2)
-        controls_layout.addWidget(self.mode_radio2, 0, 3)
+        mode_row = QHBoxLayout()
+        mode_label = QLabel("Mode:")
+        mode_label.setMinimumWidth(70)
+        mode_row.addWidget(mode_label)
+        for radio in (self.mode_radio0, self.mode_radio1, self.mode_radio2):
+            mode_row.addWidget(radio)
+        mode_row.addStretch()
+        controls_layout.addLayout(mode_row)
 
-        self.dir_checkbox = QCheckBox("Direction (CCW)")
-        self.dir_checkbox.setChecked(True)
-        self.dir_checkbox.stateChanged.connect(self.cmd_update_direction)
-        controls_layout.addWidget(self.dir_checkbox, 1, 0, 1, 4)
-        controls_layout.setColumnStretch(4, 1)
+        # Direction as two choices, so it's clear which way it turns either way.
+        self.dir_group = QButtonGroup(self)
+        self.dir_cw_radio = QRadioButton("Clockwise")
+        self.dir_ccw_radio = QRadioButton("Counter-clockwise")
+        self.dir_group.addButton(self.dir_cw_radio)
+        self.dir_group.addButton(self.dir_ccw_radio)
+        self.dir_ccw_radio.setChecked(True)
+        self.dir_ccw_radio.toggled.connect(self.cmd_update_direction)
+        dir_row = QHBoxLayout()
+        dir_label = QLabel("Direction:")
+        dir_label.setMinimumWidth(70)
+        dir_row.addWidget(dir_label)
+        dir_row.addWidget(self.dir_cw_radio)
+        dir_row.addWidget(self.dir_ccw_radio)
+        dir_row.addStretch()
+        controls_layout.addLayout(dir_row)
 
         self.left_panel.addWidget(controls_group)
 
@@ -843,11 +909,24 @@ class MasterflexPumpGUI(QMainWindow):
         self.off_time_entry = QLineEdit("0.0")
         self.volume_entry = QLineEdit("0.0")
         self.batch_entry = QLineEdit("1")
+        # Only numbers can be typed (no letters, no minus sign); Apply still checks the limits.
+        for entry in (self.flow_entry, self.on_time_entry, self.off_time_entry, self.volume_entry):
+            entry.setValidator(number_validator(entry))
+        self.batch_entry.setValidator(QIntValidator(0, 1_000_000, self.batch_entry))
+        self.batch_entry.setToolTip("How many dispenses. 0 = repeat until stopped.")
+        self.off_time_entry.setToolTip("Pause between dispenses, in seconds.")
 
         self.lbl_est_time = QLabel("Est. Time: --")
         self.lbl_est_time.setStyleSheet("color: grey; font-weight: bold;")
-        self.volume_entry.textChanged.connect(self.update_est_time)
-        self.flow_entry.textChanged.connect(self.update_est_time)
+        self.lbl_est_time.setWordWrap(True)
+        for entry in (
+            self.volume_entry,
+            self.flow_entry,
+            self.on_time_entry,
+            self.off_time_entry,
+            self.batch_entry,
+        ):
+            entry.textChanged.connect(self.update_est_time)
         self.unit_menu.currentTextChanged.connect(self.update_est_time)
 
         self.apply_params_btn = QPushButton("Apply Parameters")
@@ -856,6 +935,7 @@ class MasterflexPumpGUI(QMainWindow):
 
         self.left_panel.addWidget(params_group)
         self.left_panel.addStretch()
+        self._left_scroll = scroll_area
 
         # ---- RIGHT PANEL ----
         right_widget = QWidget()
@@ -1054,6 +1134,9 @@ class MasterflexPumpGUI(QMainWindow):
         # To put the old choice back if a change is cancelled:
         self._mode_id = self.mode_group.checkedId()
         self._unit_text = self.unit_menu.currentText()
+        # The left panel never scrolls sideways, so make it at least as wide as its contents.
+        bar = self._left_scroll.verticalScrollBar().sizeHint().width()
+        self._left_scroll.setMinimumWidth(self._left_scroll.widget().minimumSizeHint().width() + bar)
         self.update_control_states()
 
     def update_control_states(self):
@@ -1108,23 +1191,20 @@ class MasterflexPumpGUI(QMainWindow):
         self.params_layout.addWidget(self.flow_entry, 2, 1)
         self.params_layout.addWidget(self.flow_slider, 3, 0, 1, 2)
 
-        if mode == 1:  # Time
-            self.params_layout.addWidget(QLabel("On Time (sec):"), 4, 0)
-            self.params_layout.addWidget(self.on_time_entry, 5, 0)
-            self.params_layout.addWidget(QLabel("Off/Interval (sec):"), 4, 1)
+        if mode in (1, 2):  # Time or Volume: dispense, pause, repeat
+            if mode == 1:
+                self.params_layout.addWidget(QLabel("On Time (s):"), 4, 0)
+                self.params_layout.addWidget(self.on_time_entry, 5, 0)
+            else:
+                vol_unit = proto.volume_unit(self.unit_menu.currentText())
+                self.params_layout.addWidget(QLabel(f"Dispense Volume ({vol_unit}):"), 4, 0)
+                self.params_layout.addWidget(self.volume_entry, 5, 0)
+            self.params_layout.addWidget(QLabel("Off/Interval (s):"), 4, 1)
             self.params_layout.addWidget(self.off_time_entry, 5, 1)
-            self.params_layout.addWidget(QLabel("Batch Total:"), 6, 0)
+            self.params_layout.addWidget(QLabel("Batch Total (0 = repeat):"), 6, 0, 1, 2)
             self.params_layout.addWidget(self.batch_entry, 7, 0)
-            self.params_layout.addWidget(self.apply_params_btn, 8, 0, 1, 2)
-        elif mode == 2:  # Volume
-            self.params_layout.addWidget(QLabel("Dispense Volume:"), 4, 0)
-            self.params_layout.addWidget(self.volume_entry, 5, 0)
-            self.params_layout.addWidget(QLabel("Off/Interval (sec):"), 4, 1)
-            self.params_layout.addWidget(self.off_time_entry, 5, 1)
-            self.params_layout.addWidget(QLabel("Batch Total:"), 6, 0)
-            self.params_layout.addWidget(self.batch_entry, 7, 0)
-            self.params_layout.addWidget(self.lbl_est_time, 7, 1)
-            self.params_layout.addWidget(self.apply_params_btn, 8, 0, 1, 2)
+            self.params_layout.addWidget(self.lbl_est_time, 8, 0, 1, 2)
+            self.params_layout.addWidget(self.apply_params_btn, 9, 0, 1, 2)
             self.update_est_time()
         else:  # Continuous
             self.params_layout.addWidget(self.apply_params_btn, 4, 0, 1, 2)
@@ -1143,7 +1223,8 @@ class MasterflexPumpGUI(QMainWindow):
             elif mode_id == 2:
                 self.mode_radio2.setChecked(True)
         if "direction" in self.config_data:
-            self.dir_checkbox.setChecked(self.config_data["direction"] == "CCW")
+            ccw = self.config_data["direction"] == "CCW"
+            (self.dir_ccw_radio if ccw else self.dir_cw_radio).setChecked(True)
         if "unit" in self.config_data:
             self.unit_menu.setCurrentText(self.config_data["unit"])
 
@@ -1165,7 +1246,7 @@ class MasterflexPumpGUI(QMainWindow):
         self.config_data["max_rpm"] = self.hardware_max_rpm
         self.config_data["ip"] = self.ip_entry.text()
         self.config_data["mode"] = self.mode_group.checkedId()
-        self.config_data["direction"] = "CCW" if self.dir_checkbox.isChecked() else "CW"
+        self.config_data["direction"] = "CCW" if self.dir_ccw_radio.isChecked() else "CW"
         self.config_data["unit"] = self.unit_menu.currentText()
         self.config_data["flow"] = self.flow_entry.text()
         self.config_data["vol"] = self.volume_entry.text()
@@ -1979,11 +2060,11 @@ class MasterflexPumpGUI(QMainWindow):
         self.write_run_log(self._run_row("END", info))
 
     def cmd_update_direction(self):
-        ccw = self.dir_checkbox.isChecked()
+        ccw = self.dir_ccw_radio.isChecked()
         if not self.busy_change_ok("direction"):
-            self.dir_checkbox.blockSignals(True)
-            self.dir_checkbox.setChecked(not ccw)
-            self.dir_checkbox.blockSignals(False)
+            self.dir_ccw_radio.blockSignals(True)
+            (self.dir_cw_radio if ccw else self.dir_ccw_radio).setChecked(True)  # put it back
+            self.dir_ccw_radio.blockSignals(False)
             return
         with self.ctrl_lock:
             proto.set_bit(self.output_data, proto.DIRECTION_CCW, ccw)
@@ -2007,24 +2088,19 @@ class MasterflexPumpGUI(QMainWindow):
         self.update_est_time()
 
     def update_est_time(self, *args):
-        try:
-            vol = float(self.volume_entry.text())
-            flow = float(self.flow_entry.text())
-        except ValueError:
-            self.lbl_est_time.setText("Est. Time: --")
-            return
-        unit = self.unit_menu.currentText()
-        per = 60 if unit == "RPM" else proto.unit_seconds(unit)
-        if flow <= 0 or not per:
-            self.lbl_est_time.setText("Est. Time: --")
-            return
-        seconds = vol / flow * per
-        if seconds < 60:
-            self.lbl_est_time.setText(f"Est. Time: {seconds:.1f} sec")
-        elif seconds < 3600:
-            self.lbl_est_time.setText(f"Est. Time: {seconds / 60:.2f} min")
-        else:
-            self.lbl_est_time.setText(f"Est. Time: {seconds / 3600:.2f} hr")
+        """How long a Time/Volume program takes (or how much a Time dispense pumps), worked out
+        from the boxes as you type: each dispense, then the whole program with its pauses."""
+        self.lbl_est_time.setText(
+            program_estimate(
+                self.mode_group.checkedId(),
+                self.unit_menu.currentText(),
+                flow=self.flow_entry.text(),
+                volume=self.volume_entry.text(),
+                on_time=self.on_time_entry.text(),
+                off_time=self.off_time_entry.text(),
+                batch=self.batch_entry.text(),
+            )
+        )
 
     def cmd_update_mode(self):
         mode = self.mode_group.checkedId()
