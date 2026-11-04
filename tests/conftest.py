@@ -43,6 +43,13 @@ def window(pump_gui, qapp):
     if os.path.exists(config):
         os.remove(config)
     w = pump_gui.MasterflexPumpGUI()
+
+    # A real yes/no box would wait forever in a headless test. Tests that expect a question
+    # replace _confirm themselves (monkeypatch.setattr(window, "_confirm", ...)).
+    def unexpected_question(title, text):
+        pytest.fail(f"unexpected confirmation box: {title}: {text}")
+
+    w._confirm = unexpected_question
     yield w
     w.connected = False  # never run the real disconnect path
     w.timer.stop()

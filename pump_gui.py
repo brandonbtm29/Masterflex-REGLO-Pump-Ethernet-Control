@@ -56,7 +56,7 @@ import time
 import webbrowser
 
 from PyQt6.QtCore import QByteArray, QObject, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QIcon, QTextCursor
+from PyQt6.QtGui import QColor, QFont, QIcon, QKeySequence, QShortcut, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -112,9 +112,25 @@ VERSION_STYLE_OLD = (
     f"QPushButton {{ color: white; background-color: {MASTERFLEX_ORANGE}; font-weight: bold; "
     "border: none; border-radius: 3px; padding: 2px 8px; }"
 )
+GREEN, RED, BLUE = "#28a745", "#dc3545", "#007bff"
+ALARM_STYLE = (
+    f"QLabel {{ background-color: {RED}; color: white; font-weight: bold; font-size: 14px; "
+    "border-radius: 4px; padding: 8px 12px; }"
+)
+MODE_NAMES = ["Continuous", "Time", "Volume"]
 FLOW_UNITS = proto.FLOW_UNITS
 TUBE_CODES_MM = proto.TUBE_CODES_MM
 log = logging.getLogger("masterflex_pump")
+
+
+def button_style(color, *, big=False):
+    """A coloured button that still looks greyed out when it's disabled."""
+    size = " font-size: 16px; padding: 8px 22px;" if big else ""
+    return (
+        f"QPushButton {{ background-color: {color}; color: white; font-weight: bold;{size} }}"
+        "QPushButton:disabled { background-color: #3a3a3a; color: #808080; }"
+    )
+
 
 # pycomm3 logs every message it sends at INFO ("Sending generic message", "... completed"): about
 # 40 lines a second while connected, which fills the 3 x 1 MB error log in about ten minutes and
@@ -611,21 +627,36 @@ class MasterflexPumpGUI(QMainWindow):
         top_bar_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.addLayout(top_bar_layout)
 
-        self.remote_btn = QPushButton("Enable Remote")
-        self.remote_btn.setStyleSheet("background-color: #007bff; color: white; font-weight: bold;")
-        self.remote_btn.clicked.connect(self.cmd_remote_toggle)
-        top_bar_layout.addWidget(self.remote_btn)
-
+        # Start / Stop is the most important control: big, first, and Esc always stops.
         self.start_stop_btn = QPushButton("Start / Run")
-        self.start_stop_btn.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
+        self.start_stop_btn.setStyleSheet(button_style(GREEN, big=True))
+        self.start_stop_btn.setMinimumWidth(190)
+        self.start_stop_btn.setToolTip("Starts the pump, or stops it. Esc stops it at any time.")
         self.start_stop_btn.clicked.connect(self.cmd_toggle_start_stop)
         top_bar_layout.addWidget(self.start_stop_btn)
+
+        self.remote_btn = QPushButton("Enable Remote")
+        self.remote_btn.setStyleSheet(button_style(BLUE))
+        self.remote_btn.setToolTip("Switches the pump between touchscreen and computer control.")
+        self.remote_btn.clicked.connect(self.cmd_remote_toggle)
+        top_bar_layout.addWidget(self.remote_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         top_bar_layout.addStretch()
 
         self.settings_btn = QPushButton("⚙ Hardware Settings")
         self.settings_btn.clicked.connect(self.cmd_open_settings)
-        top_bar_layout.addWidget(self.settings_btn)
+        top_bar_layout.addWidget(self.settings_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+        self.stop_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        self.stop_shortcut.activated.connect(self.cmd_stop)
+
+        # Problems that need attention now (head open, pump fault, no answer): hidden when all is well.
+        self.alarm_banner = QLabel()
+        self.alarm_banner.setStyleSheet(ALARM_STYLE)
+        self.alarm_banner.setWordWrap(True)
+        self.alarm_banner.hide()
+        main_layout.addWidget(self.alarm_banner)
+        self._pump_alarm = ""  # from the pump's status (head open, fault); set by update_dashboard
 
         # ---- SPLIT LAYOUT ----
         split_layout = QHBoxLayout()
@@ -966,6 +997,46 @@ class MasterflexPumpGUI(QMainWindow):
             QTimer.singleShot(2000, self.connect)
         self.update_parameter_visibility()
         self.load_run_logs()
+        # To put the old choice back if a change is cancelled:
+        self._mode_id = self.mode_group.checkedId()
+        self._unit_text = self.unit_menu.currentText()
+        self.update_control_states()
+
+    def update_control_states(self):
+        """Grey out the controls that need the pump while there's no connection, so nothing
+        looks like it was sent when it wasn't. (Apply Parameters still works: it checks the
+        values, and they're sent when you connect.)"""
+        for widget in (self.start_stop_btn, self.remote_btn, self.reset_vol_btn, self.reset_batch_btn):
+            widget.setEnabled(self.connected)
+        tip = "" if self.connected else "Connect to the pump first."
+        self.remote_btn.setToolTip(tip or "Switches the pump between touchscreen and computer control.")
+        self.start_stop_btn.setToolTip(tip or "Starts the pump, or stops it. Esc stops it at any time.")
+
+    def refresh_alarm(self):
+        """Show the most urgent problem in the red banner, or hide it."""
+        if not self.connected:
+            text = ""
+        elif not self.link_ok:
+            text = "⚠ No response from the pump. Retrying… In remote mode the pump stops by itself."
+        else:
+            text = self._pump_alarm
+        self.alarm_banner.setText(text)
+        self.alarm_banner.setVisible(bool(text))
+
+    def busy_change_ok(self, what):
+        """Changing ``what`` stops the pump. If it's running (or a program is), ask first.
+        True to go ahead (and the pump has been stopped), False to leave things as they were."""
+        busy = self.busy_reason()
+        if not busy or not self.connected:
+            return True
+        if not self._confirm(
+            "Stop the pump?",
+            f"{busy} Changing the {what} stops the pump first.\n\nStop it and change the {what}?",
+        ):
+            self.log_msg(f"Kept the {what}: the pump is still running.")
+            return False
+        self._safe_stop()
+        return True
 
     def update_parameter_visibility(self):
         # Clear layout safely
@@ -1432,6 +1503,7 @@ class MasterflexPumpGUI(QMainWindow):
         self.status_label.setText("Status: Connected (IP)")
         self.status_label.setStyleSheet("color: green; font-weight: bold;")
         self.connect_btn.setText("Disconnect")
+        self.update_control_states()
         self.log_msg("EtherNet/IP Connected successfully.")
         self.polling = True
         threading.Thread(target=self.poll_pump_data, daemon=True).start()
@@ -1462,6 +1534,11 @@ class MasterflexPumpGUI(QMainWindow):
         self.status_label.setText("Status: Disconnected")
         self.status_label.setStyleSheet("color: red; font-weight: bold;")
         self.connect_btn.setText("Connect")
+        self.start_stop_btn.setText("Start / Run")
+        self.start_stop_btn.setStyleSheet(button_style(GREEN, big=True))
+        self._pump_alarm = ""
+        self.refresh_alarm()
+        self.update_control_states()
         if self.plc:
             try:
                 with self.plc_lock:
@@ -1518,6 +1595,9 @@ class MasterflexPumpGUI(QMainWindow):
             self.cmd_start()
 
     def cmd_start(self):
+        if not self.connected:
+            self.log_error("Not started: connect to the pump first.")
+            return
         params = self.cmd_apply_params()
         if params is None or not self._arm_dispense(params):
             return
@@ -1556,6 +1636,9 @@ class MasterflexPumpGUI(QMainWindow):
         return True
 
     def cmd_stop(self):
+        """Stop the pump and any Time/Volume program (the Stop button and the Esc key)."""
+        if not self.connected:
+            return
         with self.ctrl_lock:
             self.dispense.cancel()
             proto.set_bit(self.output_data, proto.RUN, False)
@@ -1594,6 +1677,14 @@ class MasterflexPumpGUI(QMainWindow):
         self._trigger_falling_edge(proto.CLEAR_VOLUME, "Command: RESET CUMULATIVE VOL")
 
     def cmd_reset_vol(self):
+        """The tile's Reset button: asks first, and not during a run (the run's logged volume
+        is counted from the pump's counter, so resetting it mid-run would make that wrong)."""
+        busy = self.busy_reason()
+        if busy:
+            self.log_error(f"Volume not reset. {busy} Stop it first, then reset the volume.")
+            return
+        if not self._confirm("Reset volume", "Reset the pump's cumulative volume to 0?"):
+            return
         self.cmd_reset_cumulative()
 
     def cmd_reset_batch(self):
@@ -1668,7 +1759,10 @@ class MasterflexPumpGUI(QMainWindow):
                 proto.set_bit(self.output_data, proto.RUN, True)
             self.write_output_data()
 
-        self.log_msg("Parameters Applied (EtherNet/IP)")
+        if self.connected:
+            self.log_msg("Parameters applied.")
+        else:
+            self.log_msg("Parameters checked. They're sent to the pump when you connect.")
         return params
 
     def cmd_open_log_folder(self):
@@ -1802,7 +1896,7 @@ class MasterflexPumpGUI(QMainWindow):
         row = {
             "Date/Time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
             "Event": event,
-            "Mode": ["Continuous", "Time", "Volume"][mode],
+            "Mode": MODE_NAMES[mode],
             "Flow Rate": f"{self.flow_entry.text()} {self.unit_menu.currentText()}",
             "Other Info": info,
         }
@@ -1825,15 +1919,25 @@ class MasterflexPumpGUI(QMainWindow):
         self.write_run_log(self._run_row("END", info))
 
     def cmd_update_direction(self):
-        if self.connected:
-            self._safe_stop()
         ccw = self.dir_checkbox.isChecked()
+        if not self.busy_change_ok("direction"):
+            self.dir_checkbox.blockSignals(True)
+            self.dir_checkbox.setChecked(not ccw)
+            self.dir_checkbox.blockSignals(False)
+            return
         with self.ctrl_lock:
             proto.set_bit(self.output_data, proto.DIRECTION_CCW, ccw)
         self.log_msg(f"Direction set to: {'CCW' if ccw else 'CW'}")
         self.write_output_data()
 
     def cmd_update_unit(self, choice):
+        previous = getattr(self, "_unit_text", choice)
+        if choice != previous and not self.busy_change_ok("flow unit"):
+            self.unit_menu.blockSignals(True)
+            self.unit_menu.setCurrentText(previous)
+            self.unit_menu.blockSignals(False)
+            return
+        self._unit_text = choice
         with self.ctrl_lock:
             self.output_data[6] = proto.unit_code(choice)
         self._flow_limits = None  # the pump reports new limits for the new unit
@@ -1864,10 +1968,11 @@ class MasterflexPumpGUI(QMainWindow):
 
     def cmd_update_mode(self):
         mode = self.mode_group.checkedId()
+        if mode != self._mode_id and not self.busy_change_ok("mode"):
+            self.mode_group.button(self._mode_id).setChecked(True)  # put the old choice back
+            return
+        self._mode_id = mode
         self.update_parameter_visibility()
-
-        if self.connected:
-            self._safe_stop()
 
         # The drive stays in continuous mode; Time and Volume run in software (dispense.py).
         with self.ctrl_lock:
@@ -1875,7 +1980,7 @@ class MasterflexPumpGUI(QMainWindow):
 
         if self.connected:
             self.write_output_data()
-        self.log_msg(f"Mode set to: {mode}")
+        self.log_msg(f"Mode set to: {MODE_NAMES[mode]}")
 
     # --- Pump communication -------------------------------------------------------
     # pycomm3 raises on socket problems but only *reports* CIP errors in the returned
@@ -1932,6 +2037,7 @@ class MasterflexPumpGUI(QMainWindow):
             self.status_label.setText("Status: Connected (IP)")
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
             self.log_msg("Communication with the pump restored.")
+            self.refresh_alarm()
         else:
             self.status_label.setText("Status: No response from pump")
             self.status_label.setStyleSheet("color: red; font-weight: bold;")
@@ -1939,6 +2045,7 @@ class MasterflexPumpGUI(QMainWindow):
                 f"Lost communication with the pump ({error}). Retrying. "
                 "In remote mode the pump stops by itself when it stops hearing from the app."
             )
+            self.refresh_alarm()
 
     def write_output_data(self):
         if not self.connected or not self.plc:
@@ -2015,17 +2122,24 @@ class MasterflexPumpGUI(QMainWindow):
         self.lbl_mon_status.setStyleSheet(
             "color: green; font-weight: bold;" if status_ok else "color: red; font-weight: bold;"
         )
+        if st.head_open:
+            alarm = "⚠ The pump head is open. Close it before running."
+        elif not status_ok:
+            alarm = "⚠ The pump reports a problem (Status OK: NO). Check its touchscreen."
+        else:
+            alarm = ""
+        if alarm != self._pump_alarm:
+            self._pump_alarm = alarm
+            self.refresh_alarm()
 
         self._last_cum_vol = cum_vol
         if max_flow > min_flow:
             self._flow_limits = (min_flow, max_flow)
 
-        if is_running or dispense_running or self.dispense.active:
-            self.start_stop_btn.setText("Stop / Pause")
-            self.start_stop_btn.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold;")
-        else:
-            self.start_stop_btn.setText("Start / Run")
-            self.start_stop_btn.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
+        stop = is_running or dispense_running or self.dispense.active
+        if stop != (self.start_stop_btn.text() == "Stop / Pause"):
+            self.start_stop_btn.setText("Stop / Pause" if stop else "Start / Run")
+            self.start_stop_btn.setStyleSheet(button_style(RED if stop else GREEN, big=True))
 
         if is_running or dispense_running:
             self.pump_running = True

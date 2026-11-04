@@ -102,6 +102,7 @@ def test_negative_and_zero_values_are_refused(window):
 
 def test_changing_unit_forgets_the_old_limits(connected):
     window, pump = connected
+    pump.input_data = fake_input(status=0b10000001)  # stopped: no need to ask first
     window._poll_once()
     window.update_dashboard()
     assert window._flow_limits
@@ -608,3 +609,135 @@ def test_failed_update_gives_the_button_back_and_says_why(
     assert expected in restarts[-1]  # shown in a warning box too
     assert "start" not in restarts  # no restart after a failed update
     dialog.close()
+
+
+# --- Safety: nothing looks sent when it isn't, and nothing stops the pump unasked ----------
+
+
+def test_pump_controls_are_greyed_out_until_connected(window):
+    from conftest import FakePump
+
+    for button in (window.start_stop_btn, window.remote_btn, window.reset_vol_btn):
+        assert not button.isEnabled()
+    assert window.apply_params_btn.isEnabled()  # checks the values; they're sent on connect
+    window.on_connect_result(FakePump(), "")
+    assert window.start_stop_btn.isEnabled() and window.remote_btn.isEnabled()
+    window.disconnect()
+    assert not window.start_stop_btn.isEnabled()
+
+
+def test_start_without_a_connection_says_so(window):
+    window.flow_entry.setText("5")
+    window.cmd_start()
+    log = window.console_textbox.toPlainText()
+    assert "connect to the pump first" in log and "Command: START" not in log
+    assert not window.output_data[0] & 1
+
+
+def test_apply_without_a_connection_doesnt_claim_it_was_sent(window):
+    window.flow_entry.setText("5")
+    assert window.cmd_apply_params() is not None
+    assert "sent to the pump when you connect" in window.console_textbox.toPlainText()
+
+
+def test_escape_stops_the_pump(connected):
+    window, pump = connected
+    window.flow_entry.setText("5")
+    window.cmd_start()
+    assert window.output_data[0] & 1
+    window.stop_shortcut.activated.emit()
+    assert not window.output_data[0] & 1
+    assert pump.writes[-1][0] & 1 == 0
+
+
+def running(window, pump):
+    """Start the pump and let the window see it running."""
+    window.flow_entry.setText("5")
+    window.cmd_start()
+    window._poll_once()
+    window.update_dashboard()
+    assert window.busy_reason()
+
+
+def test_changing_mode_while_running_asks_and_can_be_cancelled(connected, monkeypatch):
+    window, pump = connected
+    running(window, pump)
+    questions = []
+    monkeypatch.setattr(window, "_confirm", lambda title, text: questions.append(text) or False)
+    window.mode_radio1.click()
+    assert questions and "Changing the mode stops the pump" in questions[0]
+    assert window.mode_radio0.isChecked()  # put back
+    assert window.output_data[0] & 1  # still running
+
+
+def test_changing_mode_while_running_stops_after_yes(connected, monkeypatch):
+    window, pump = connected
+    running(window, pump)
+    monkeypatch.setattr(window, "_confirm", lambda *a: True)
+    window.mode_radio2.click()
+    assert window.mode_radio2.isChecked()
+    assert not window.output_data[0] & 1
+
+
+def test_changing_mode_while_stopped_doesnt_ask(connected):
+    window, pump = connected
+    window.mode_radio1.click()  # the fixture's _confirm fails the test if it's asked
+    assert window.mode_radio1.isChecked()
+    assert "Mode set to: Time" in window.console_textbox.toPlainText()
+
+
+def test_changing_direction_while_running_can_be_cancelled(connected, monkeypatch):
+    window, pump = connected
+    running(window, pump)
+    monkeypatch.setattr(window, "_confirm", lambda *a: False)
+    ccw = window.dir_checkbox.isChecked()
+    window.dir_checkbox.click()
+    assert window.dir_checkbox.isChecked() == ccw
+    assert window.output_data[0] & 1
+
+
+def test_changing_unit_while_running_can_be_cancelled(connected, monkeypatch):
+    window, pump = connected
+    running(window, pump)
+    monkeypatch.setattr(window, "_confirm", lambda *a: False)
+    window.unit_menu.setCurrentText("L/min")
+    assert window.unit_menu.currentText() == "mL/min"
+    assert window.output_data[0] & 1
+
+
+def test_alarm_banner_for_head_open_fault_and_lost_link(connected):
+    window, pump = connected
+    assert window.alarm_banner.isHidden()
+    pump.input_data = fake_input(status=0b10010011)  # head open
+    window._poll_once()
+    window.update_dashboard()
+    assert not window.alarm_banner.isHidden() and "head is open" in window.alarm_banner.text()
+    window._report_comm("read failed: timed out")  # as the comms thread does
+    assert "No response from the pump" in window.alarm_banner.text()
+    pump.input_data = fake_input()
+    window._report_comm("")
+    window._poll_once()
+    window.update_dashboard()
+    assert window.alarm_banner.isHidden()
+    pump.input_data = fake_input(status=0b10000010)  # Status OK bit off
+    window._poll_once()
+    window.update_dashboard()
+    assert "reports a problem" in window.alarm_banner.text()
+    window.disconnect()
+    assert window.alarm_banner.isHidden()
+
+
+def test_reset_volume_asks_and_is_refused_during_a_run(connected, monkeypatch):
+    window, pump = connected
+    running(window, pump)
+    window.cmd_reset_vol()  # the fixture fails the test if this asks
+    assert "Volume not reset" in window.console_textbox.toPlainText()
+    window.cmd_stop()
+    pump.input_data = fake_input(status=0b10000001)
+    window._poll_once()
+    window.update_dashboard()
+    asked = []
+    monkeypatch.setattr(window, "_confirm", lambda *a: asked.append(a) or False)
+    before = len(pump.writes)
+    window.cmd_reset_vol()
+    assert asked and len(pump.writes) == before  # said no: nothing sent
