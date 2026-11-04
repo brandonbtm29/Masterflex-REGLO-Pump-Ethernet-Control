@@ -56,7 +56,7 @@ import time
 import webbrowser
 
 from PyQt6.QtCore import QByteArray, QObject, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QIcon, QKeySequence, QShortcut, QTextCursor
+from PyQt6.QtGui import QColor, QIcon, QKeySequence, QShortcut, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -65,6 +65,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
@@ -73,12 +74,14 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QRadioButton,
     QScrollArea,
     QSizePolicy,
     QSlider,
+    QSplitter,
     QTabWidget,
     QTextEdit,
     QToolButton,
@@ -193,6 +196,97 @@ class CollapsibleBox(QWidget):
         title = self.title_text.replace("&", "&&")  # a single & would become a keyboard shortcut
         self.toggle_button.setText(f"▼ {title}" if checked else f"▶ {title}")
         self.content_area.setVisible(checked)
+
+
+class TileGrid(QWidget):
+    """The live readouts as tiles in a grid, so they all show without scrolling: three across,
+    or two when the window is narrow. Right-click a tile to move it; the order is saved."""
+
+    def __init__(self, on_reorder, parent=None):
+        super().__init__(parent)
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(6)
+        self.tiles = {}  # key -> the tile's frame
+        self.order = []
+        self.columns = 3
+        self.font_pt = 0
+        self._on_reorder = on_reorder
+        self._set_font(16)
+
+    def _set_font(self, points):
+        """Tile text (QLabels marked tile=true) shrinks when the tiles get narrow."""
+        if points != self.font_pt:
+            self.font_pt = points
+            self.setStyleSheet(
+                f"QFrame#tile {{ border: 1px solid #444; border-radius: 6px; }}"
+                f'QLabel[tile="true"] {{ color: {MASTERFLEX_ORANGE}; font-weight: bold; '
+                f"font-size: {points}pt; }}"
+            )
+
+    def add(self, key, widget):
+        frame = QFrame(self)  # a parent now, or isHidden() is True until it's laid out
+        frame.setObjectName("tile")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.addWidget(widget)
+        frame.setToolTip("Right-click to move this tile.")
+        frame.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        frame.customContextMenuRequested.connect(lambda pos, k=key: self._menu(k, frame.mapToGlobal(pos)))
+        self.tiles[key] = frame
+        self.order.append(key)
+
+    def set_order(self, order):
+        """Show the tiles in this order (unknown keys are ignored, missing ones go last)."""
+        known = [key for key in order if key in self.tiles]
+        self.order = list(dict.fromkeys(known + [key for key in self.order if key not in known]))
+        self.relayout()
+
+    def set_tile_visible(self, key, visible):
+        self.tiles[key].setVisible(visible)
+        self.relayout()
+
+    def shown(self):
+        """Keys of the tiles on screen, in order."""
+        return [key for key in self.order if not self.tiles[key].isHidden()]
+
+    def relayout(self):
+        for frame in self.tiles.values():
+            self.grid.removeWidget(frame)
+        for i, key in enumerate(self.shown()):
+            self.grid.addWidget(self.tiles[key], i // self.columns, i % self.columns)
+        for column in range(3):
+            self.grid.setColumnStretch(column, 1 if column < self.columns else 0)
+
+    def resizeEvent(self, event):
+        width = event.size().width()
+        columns = 3 if width >= 420 else 2
+        if columns != self.columns:
+            self.columns = columns
+            self.relayout()
+        self._set_font(16 if width / self.columns >= 230 else 12)
+        super().resizeEvent(event)
+
+    def move_tile(self, key, step):
+        i = self.order.index(key)
+        j = i + step
+        if 0 <= j < len(self.order):
+            self.order[i], self.order[j] = self.order[j], self.order[i]
+            self.relayout()
+            self._on_reorder(list(self.order))
+
+    def _menu(self, key, where):
+        menu = QMenu(self)
+        i = self.order.index(key)
+        earlier = menu.addAction("Move earlier")
+        earlier.setEnabled(i > 0)
+        later = menu.addAction("Move later")
+        later.setEnabled(i < len(self.order) - 1)
+        chosen = menu.exec(where)
+        if chosen is earlier:
+            self.move_tile(key, -1)
+        elif chosen is later:
+            self.move_tile(key, 1)
 
 
 class SignalManager(QObject):
@@ -658,60 +752,49 @@ class MasterflexPumpGUI(QMainWindow):
         main_layout.addWidget(self.alarm_banner)
         self._pump_alarm = ""  # from the pump's status (head open, fault); set by update_dashboard
 
-        # ---- SPLIT LAYOUT ----
-        split_layout = QHBoxLayout()
-        main_layout.addLayout(split_layout, 1)
+        # ---- SPLIT LAYOUT: settings on the left, readouts and logs on the right ----
+        # A splitter, not fixed widths, so the window still works at its minimum size.
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setChildrenCollapsible(False)
+        main_layout.addWidget(self.main_splitter, 1)
 
         # ---- LEFT PANEL ----
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setFixedWidth(450)
+        scroll_area.setMinimumWidth(300)
         scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         left_widget = QWidget()
         self.left_panel = QVBoxLayout(left_widget)
+        self.left_panel.setContentsMargins(0, 0, 6, 0)
         scroll_area.setWidget(left_widget)
-        split_layout.addWidget(scroll_area)
+        self.main_splitter.addWidget(scroll_area)
 
-        # 1. System & Hardware Frame
-        conn_group = CollapsibleBox("System & Hardware")
-        conn_layout = QVBoxLayout(conn_group.content_area)
+        # 1. Connection
+        conn_group = CollapsibleBox("Connection")
+        conn_layout = QGridLayout(conn_group.content_area)
 
-        self.logo_label = QLabel("MasterFlex\nController")
-        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        font = QFont()
-        font.setPointSize(20)
-        font.setBold(True)
-        self.logo_label.setFont(font)
-        self.logo_label.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
-        conn_layout.addWidget(self.logo_label)
-
-        conn_layout.addWidget(QLabel("Connection Target:"))
+        conn_layout.addWidget(QLabel("Pump IP:"), 0, 0)
         self.ip_entry = QLineEdit()
         self.ip_entry.setPlaceholderText("192.168.0.50")
-        conn_layout.addWidget(self.ip_entry)
+        conn_layout.addWidget(self.ip_entry, 0, 1)
 
         self.discover_btn = QPushButton("Search Network")
         self.discover_btn.clicked.connect(self.cmd_discover)
-        conn_layout.addWidget(self.discover_btn)
+        conn_layout.addWidget(self.discover_btn, 0, 2)
 
         self.connect_btn = QPushButton("Connect")
-        self.connect_btn.setStyleSheet(
-            f"background-color: {MASTERFLEX_ORANGE}; color: white; font-weight: bold;"
-        )
+        self.connect_btn.setStyleSheet(button_style(MASTERFLEX_ORANGE))
         self.connect_btn.clicked.connect(self.toggle_connection)
-        conn_layout.addWidget(self.connect_btn)
+        conn_layout.addWidget(self.connect_btn, 1, 0, 1, 3)
+        conn_layout.setColumnStretch(1, 1)
 
         self.left_panel.addWidget(conn_group)
 
         # 2. Controls Frame
         controls_group = CollapsibleBox("Operational Controls")
         controls_layout = QGridLayout(controls_group.content_area)
-
-        self.dir_checkbox = QCheckBox("Direction (CCW)")
-        self.dir_checkbox.setChecked(True)
-        self.dir_checkbox.stateChanged.connect(self.cmd_update_direction)
-        controls_layout.addWidget(self.dir_checkbox, 0, 0, 1, 2)
 
         self.mode_group = QButtonGroup(self)
         self.mode_radio0 = QRadioButton("Continuous")
@@ -725,10 +808,16 @@ class MasterflexPumpGUI(QMainWindow):
 
         self.mode_group.idClicked.connect(self.cmd_update_mode)
 
-        controls_layout.addWidget(QLabel("Operation Mode:"), 1, 0, 1, 2)
-        controls_layout.addWidget(self.mode_radio0, 2, 0, 1, 2)
-        controls_layout.addWidget(self.mode_radio1, 3, 0, 1, 2)
-        controls_layout.addWidget(self.mode_radio2, 4, 0, 1, 2)
+        controls_layout.addWidget(QLabel("Mode:"), 0, 0)
+        controls_layout.addWidget(self.mode_radio0, 0, 1)
+        controls_layout.addWidget(self.mode_radio1, 0, 2)
+        controls_layout.addWidget(self.mode_radio2, 0, 3)
+
+        self.dir_checkbox = QCheckBox("Direction (CCW)")
+        self.dir_checkbox.setChecked(True)
+        self.dir_checkbox.stateChanged.connect(self.cmd_update_direction)
+        controls_layout.addWidget(self.dir_checkbox, 1, 0, 1, 4)
+        controls_layout.setColumnStretch(4, 1)
 
         self.left_panel.addWidget(controls_group)
 
@@ -762,131 +851,81 @@ class MasterflexPumpGUI(QMainWindow):
         self.unit_menu.currentTextChanged.connect(self.update_est_time)
 
         self.apply_params_btn = QPushButton("Apply Parameters")
-        self.apply_params_btn.setStyleSheet(
-            f"background-color: {MASTERFLEX_ORANGE}; color: white; font-weight: bold;"
-        )
+        self.apply_params_btn.setStyleSheet(button_style(MASTERFLEX_ORANGE))
         self.apply_params_btn.clicked.connect(self.cmd_apply_params)
 
         self.left_panel.addWidget(params_group)
         self.left_panel.addStretch()
 
         # ---- RIGHT PANEL ----
-        right_panel = QVBoxLayout()
-        split_layout.addLayout(right_panel, 1)
+        right_widget = QWidget()
+        right_panel = QVBoxLayout(right_widget)
+        right_panel.setContentsMargins(6, 0, 0, 0)
+        self.main_splitter.addWidget(right_widget)
+        self.main_splitter.setStretchFactor(0, 0)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setSizes([400, 900])
 
-        # 1. Real-Time Monitor
+        # 1. Real-Time Monitor: tiles in a grid, all visible at once.
         monitor_group = CollapsibleBox("Real-Time Feedback")
         monitor_layout = QVBoxLayout(monitor_group.content_area)
-        self.monitor_list = QListWidget()
-        self.monitor_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self.monitor_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.monitor_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.monitor_list.setStyleSheet(
-            "QListWidget::item { border-bottom: 1px solid #444; padding: 5px; } QListWidget::item:selected { background: transparent; color: inherit; border-bottom: 1px solid #444; } QListWidget { border: none; background: transparent; }"
-        )
+        monitor_layout.setContentsMargins(0, 4, 0, 4)
+        self.tiles = TileGrid(self.save_monitor_order)
 
-        # Connect drop event to save configuration
-        self.monitor_list.model().rowsMoved.connect(self.save_monitor_order)
+        def tile_label(text):
+            label = QLabel(text)
+            label.setProperty("tile", True)  # styled (and sized) by TileGrid
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            return label
 
-        font_mon = QFont()
-        font_mon.setPointSize(16)
-        font_mon.setBold(True)
+        def with_button(label, button):
+            """The tile's value with its small Reset button beside it, so every tile is one height."""
+            widget = QWidget()
+            layout = QHBoxLayout(widget)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
+            layout.addWidget(label, 1)
+            layout.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
+            return widget
 
-        self.lbl_mon_flow = QLabel("Flow Rate\n0.0000")
-        self.lbl_mon_flow.setFont(font_mon)
-        self.lbl_mon_flow.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
-        self.lbl_mon_flow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.lbl_mon_vol = QLabel("Cum. Volume\n0.0000")
-        self.lbl_mon_vol.setFont(font_mon)
-        self.lbl_mon_vol.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
-        self.lbl_mon_vol.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_mon_flow = tile_label("Flow Rate\n0.0000")
+        self.lbl_mon_vol = tile_label("Cum. Volume\n0.0000")
         self.reset_vol_btn = QPushButton("Reset Vol")
-        self.reset_vol_btn.setMaximumWidth(120)
         self.reset_vol_btn.clicked.connect(self.cmd_reset_vol)
-        vol_widget = QWidget()
-        vol_layout = QVBoxLayout(vol_widget)
-        vol_layout.setContentsMargins(0, 0, 0, 0)
-        vol_layout.addWidget(self.lbl_mon_vol)
-        vol_layout.addWidget(self.reset_vol_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        self.lbl_mon_calctime = QLabel("Run Time\n0:00")
-        self.lbl_mon_calctime.setFont(font_mon)
-        self.lbl_mon_calctime.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
-        self.lbl_mon_calctime.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.lbl_mon_batch = QLabel("Batch\n0")
-        self.lbl_mon_batch.setFont(font_mon)
-        self.lbl_mon_batch.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
-        self.lbl_mon_batch.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_mon_calctime = tile_label("Run Time\n0:00")
+        self.lbl_mon_batch = tile_label("Batch\n0")
         self.reset_batch_btn = QPushButton("Reset Batch")
-        self.reset_batch_btn.setMaximumWidth(120)
         self.reset_batch_btn.clicked.connect(self.cmd_reset_batch)
-        batch_widget = QWidget()
-        batch_layout = QVBoxLayout(batch_widget)
-        batch_layout.setContentsMargins(0, 0, 0, 0)
-        batch_layout.addWidget(self.lbl_mon_batch)
-        batch_layout.addWidget(self.reset_batch_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        self.lbl_mon_rpm = QLabel("RPM (est.)\n0.0")
-        self.lbl_mon_rpm.setFont(font_mon)
-        self.lbl_mon_rpm.setStyleSheet(f"color: {MASTERFLEX_ORANGE};")
-        self.lbl_mon_rpm.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_mon_rpm = tile_label("RPM (est.)\n0.0")
 
         self.monitor_items = {
             "flow": self.lbl_mon_flow,
-            "vol": vol_widget,
+            "vol": with_button(self.lbl_mon_vol, self.reset_vol_btn),
             "calc_time": self.lbl_mon_calctime,
             "rpm": self.lbl_mon_rpm,
-            "batch": batch_widget,
+            "batch": with_button(self.lbl_mon_batch, self.reset_batch_btn),
         }
+        default_order = list(self.monitor_items)
+        for key, widget in self.monitor_items.items():
+            self.tiles.add(key, widget)
+        saved_order = self.config_data.get("monitor_order")
+        self.tiles.set_order(saved_order if isinstance(saved_order, list) else default_order)
+        monitor_layout.addWidget(self.tiles)
+        right_panel.addWidget(monitor_group)
 
-        default_order = ["flow", "vol", "calc_time", "rpm", "batch"]
-        self.monitor_order = self.config_data.get("monitor_order", default_order)
-
-        for key in default_order:
-            if key not in self.monitor_order:
-                self.monitor_order.append(key)
-
-        for key in self.monitor_order:
-            if key in self.monitor_items:
-                widget = self.monitor_items[key]
-                item = QListWidgetItem(self.monitor_list)
-                item.setSizeHint(QSize(0, 90 if key in ["vol", "batch"] else 60))
-                item.setData(Qt.ItemDataRole.UserRole, key)
-                self.monitor_list.addItem(item)
-                self.monitor_list.setItemWidget(item, widget)
-
-        monitor_layout.addWidget(self.monitor_list)
-
-        top_right_layout = QHBoxLayout()
-        right_panel.addLayout(top_right_layout, 1)
-
-        top_right_layout.addWidget(monitor_group)
-
-        logs_layout = QVBoxLayout()
-        top_right_layout.addLayout(logs_layout, 1)
-
-        # 2. Console Box
-        lbl_console = QLabel("<b>System Event Log</b>")
-        logs_layout.addWidget(lbl_console)
-        self.console_textbox = QTextEdit()
-        self.console_textbox.setReadOnly(True)
-        self.console_textbox.setMaximumHeight(100)
-        logs_layout.addWidget(self.console_textbox)
-        self.log_msg_ui("Ready. Enter Target and Connect.")
-
-        # 3. Run Logs
-        lbl_run_log = QLabel("<b>Dispense Run History</b>")
-        logs_layout.addWidget(lbl_run_log)
+        # 2. Run history and event log, side by side; drag the divider to share the space.
+        history_box = QWidget()
+        history_layout = QVBoxLayout(history_box)
+        history_layout.setContentsMargins(0, 0, 0, 0)
+        history_layout.addWidget(QLabel("<b>Dispense Run History</b>"))
 
         self.run_log_list = QListWidget()
         self.run_log_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.run_log_list.setStyleSheet("QListWidget::item { padding: 4px; }")
-        logs_layout.addWidget(self.run_log_list, 1)
+        history_layout.addWidget(self.run_log_list, 1)
 
         logs_btn_layout = QHBoxLayout()
-        logs_layout.addLayout(logs_btn_layout)
+        history_layout.addLayout(logs_btn_layout)
 
         self.btn_save_selected_logs = QPushButton("Save Selected Logs")
         self.btn_save_selected_logs.clicked.connect(self.cmd_save_selected_logs)
@@ -896,9 +935,27 @@ class MasterflexPumpGUI(QMainWindow):
         self.btn_delete_selected_logs.clicked.connect(self.cmd_delete_selected_logs)
         logs_btn_layout.addWidget(self.btn_delete_selected_logs)
 
-        # 4. Experimental Notes
+        events_box = QWidget()
+        events_layout = QVBoxLayout(events_box)
+        events_layout.setContentsMargins(0, 0, 0, 0)
+        events_layout.addWidget(QLabel("<b>System Event Log</b>"))
+        self.console_textbox = QTextEdit()
+        self.console_textbox.setReadOnly(True)
+        events_layout.addWidget(self.console_textbox, 1)
+        self.log_msg_ui("Ready. Enter Target and Connect.")
+
+        self.logs_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.logs_splitter.setChildrenCollapsible(False)
+        self.logs_splitter.addWidget(history_box)
+        self.logs_splitter.addWidget(events_box)
+        self.logs_splitter.setStretchFactor(0, 3)
+        self.logs_splitter.setStretchFactor(1, 2)
+        right_panel.addWidget(self.logs_splitter, 1)
+
+        # 3. Experimental notes and metadata tokens, in one row so they don't take the height.
         notes_group = CollapsibleBox("Experimental Notes", expanded=True)
-        notes_layout = QGridLayout(notes_group.content_area)
+        notes_layout = QHBoxLayout(notes_group.content_area)
+        notes_layout.setContentsMargins(0, 4, 0, 0)
 
         notes_controls = QVBoxLayout()
         self.open_log_btn = QPushButton("Open Log Folder")
@@ -913,21 +970,23 @@ class MasterflexPumpGUI(QMainWindow):
         self.auto_log_cb.setChecked(False)
         notes_controls.addWidget(self.auto_log_cb)
         notes_controls.addStretch()
-
-        notes_layout.addLayout(notes_controls, 0, 0, 2, 1)
+        notes_layout.addLayout(notes_controls)
 
         self.notes_entry = QTextEdit()
-        self.notes_entry.setMaximumHeight(100)
-        notes_layout.addWidget(self.notes_entry, 0, 1)
+        self.notes_entry.setPlaceholderText("Notes for the next runs (saved with each START row)")
+        self.notes_entry.setMaximumHeight(150)
+        notes_layout.addWidget(self.notes_entry, 1)
 
         # Metadata Tokens
         self.gb_tokens = CollapsibleBox("Metadata Tokens", expanded=True)
         self.tokens_outer_layout = QVBoxLayout(self.gb_tokens.content_area)
+        self.tokens_outer_layout.setContentsMargins(0, 0, 0, 0)
 
         self.tokens_list = QListWidget()
         self.tokens_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.tokens_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tokens_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.tokens_list.setMaximumHeight(130)
         self.tokens_list.setStyleSheet(
             "QListWidget::item { border-bottom: 1px solid #444; padding: 2px; } QListWidget::item:selected { background: transparent; color: inherit; border-bottom: 1px solid #444; } QListWidget { border: none; background: transparent; }"
         )
@@ -939,8 +998,7 @@ class MasterflexPumpGUI(QMainWindow):
         self.tokens_outer_layout.addWidget(self.btn_add_tab_token)
 
         self.token_inputs = {}
-        notes_layout.addWidget(self.gb_tokens, 1, 1)
-        notes_layout.setColumnStretch(1, 1)
+        notes_layout.addWidget(self.gb_tokens, 1)
 
         # Load tokens from config or inject defaults
         saved_tokens = self.config_data.get("metadata_tokens", {})
@@ -952,41 +1010,37 @@ class MasterflexPumpGUI(QMainWindow):
 
         right_panel.addWidget(notes_group)
 
-        # 5. Status Indicators
-        status_frame = QWidget()
-        status_layout = QHBoxLayout(status_frame)
-
+        # 4. Status bar along the bottom of the window, version on the right.
+        status_bar = self.statusBar()
+        status_bar.setSizeGripEnabled(False)
         self.status_label = QLabel("Status: Disconnected")
         self.status_label.setStyleSheet("color: red; font-weight: bold;")
-        status_layout.addWidget(self.status_label)
-
         self.lbl_mon_status = QLabel("Status OK: -")
         self.lbl_mon_status.setStyleSheet("font-weight: bold;")
-        status_layout.addWidget(self.lbl_mon_status)
-
         self.running_indicator = QLabel("● Stopped")
         self.running_indicator.setStyleSheet("color: grey; font-weight: bold;")
-        status_layout.addWidget(self.running_indicator)
-
         self.remote_indicator = QLabel("Local Mode")
         self.remote_indicator.setStyleSheet("color: grey; font-weight: bold;")
-        status_layout.addWidget(self.remote_indicator)
-
         self.tube_indicator = QLabel("Tube: --")
         self.tube_indicator.setStyleSheet("color: grey; font-weight: bold;")
-        status_layout.addWidget(self.tube_indicator)
+        for label in (
+            self.status_label,
+            self.lbl_mon_status,
+            self.running_indicator,
+            self.remote_indicator,
+            self.tube_indicator,
+        ):
+            label.setContentsMargins(6, 0, 10, 0)
+            status_bar.addWidget(label)
 
         # Version, bottom right. Turns orange when GitHub has a newer release (see start_update_check).
-        status_layout.addStretch()
         self.version_btn = QPushButton(f"v{__version__}")
         self.version_btn.setFlat(True)
         self.version_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.version_btn.setToolTip("Version of this app. Click for updates.")
         self.version_btn.setStyleSheet(VERSION_STYLE_CURRENT)
         self.version_btn.clicked.connect(lambda: self.cmd_open_settings(tab="App"))
-        status_layout.addWidget(self.version_btn)
-
-        right_panel.addWidget(status_frame)
+        status_bar.addPermanentWidget(self.version_btn)
 
         self.apply_loaded_settings()
         self.log_msg("Application started. Ready to connect.")
@@ -1075,12 +1129,7 @@ class MasterflexPumpGUI(QMainWindow):
         else:  # Continuous
             self.params_layout.addWidget(self.apply_params_btn, 4, 0, 1, 2)
 
-        if mode in [1, 2]:
-            self.lbl_mon_batch.show()
-            self.reset_batch_btn.show()
-        else:
-            self.lbl_mon_batch.hide()
-            self.reset_batch_btn.hide()
+        self.tiles.set_tile_visible("batch", mode in (1, 2))
 
     def apply_loaded_settings(self):
         if "ip" in self.config_data:
@@ -1140,12 +1189,8 @@ class MasterflexPumpGUI(QMainWindow):
         except (OSError, TypeError, ValueError) as e:
             self.log_error(f"Couldn't save settings: {e}")
 
-    def save_monitor_order(self):
-        new_order = []
-        for i in range(self.monitor_list.count()):
-            item = self.monitor_list.item(i)
-            new_order.append(item.data(Qt.ItemDataRole.UserRole))
-        self.config_data["monitor_order"] = new_order
+    def save_monitor_order(self, order):
+        self.config_data["monitor_order"] = list(order)
         self.save_all_settings()
 
     def request_add_custom_token(self):
@@ -1350,17 +1395,32 @@ class MasterflexPumpGUI(QMainWindow):
             return False
         try:
             with open(self.layout_file, encoding="utf-8") as f:
-                saved = json.load(f)["geometry"]
-            geometry = QByteArray.fromBase64(saved.encode("ascii"))
+                state = json.load(f)
+            geometry = QByteArray.fromBase64(state["geometry"].encode("ascii"))
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return False
+        splitters = state.get("splitters")
+        for name, splitter in self._splitters().items():
+            try:  # where the dividers between the panels were
+                splitter.restoreState(QByteArray.fromBase64(splitters[name].encode("ascii")))
+            except (KeyError, TypeError, AttributeError):
+                pass
         return bool(self.restoreGeometry(geometry))
+
+    def _splitters(self):
+        return {"main": self.main_splitter, "logs": self.logs_splitter}
 
     def save_layout(self):
         """Remember the window's size, position and maximized state (on close and restart)."""
         if not self.layout_file or not self.isVisible():
             return
-        state = {"geometry": bytes(self.saveGeometry().toBase64()).decode("ascii")}
+        state = {
+            "geometry": bytes(self.saveGeometry().toBase64()).decode("ascii"),
+            "splitters": {
+                name: bytes(splitter.saveState().toBase64()).decode("ascii")
+                for name, splitter in self._splitters().items()
+            },
+        }
         tmp = self.layout_file + ".tmp"
         try:
             with open(tmp, "w", encoding="utf-8") as f:

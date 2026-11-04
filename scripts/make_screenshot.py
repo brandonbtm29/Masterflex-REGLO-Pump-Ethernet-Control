@@ -73,6 +73,7 @@ def main():
     w.status_label.setText("Status: Connected (IP)")
     w.status_label.setStyleSheet("color: green; font-weight: bold;")
     w.connect_btn.setText("Disconnect")
+    w.update_control_states()
     w.input_data = fake_input()
     w.show()
     for _ in range(5):
