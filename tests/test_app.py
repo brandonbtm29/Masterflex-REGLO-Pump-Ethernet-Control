@@ -415,7 +415,8 @@ def test_window_layout_is_remembered_on_this_computer_only(pump_gui, qapp, tmp_p
     first = pump_gui.MasterflexPumpGUI()
     first.layout_file = str(state)
     assert not first.restore_layout()  # nothing saved yet: main() then opens it maximized
-    first.setGeometry(QRect(0, 40, 800, 650))  # fits the 800 x 800 offscreen screen; default is 1000 x 750
+    width = max(800, first.minimumWidth())  # the minimum depends on the system's fonts
+    first.setGeometry(QRect(0, 40, width, 650))  # fits the 800 x 800 offscreen screen where it can
     first.show()
     qapp.processEvents()
     first.timer.stop()
@@ -426,7 +427,7 @@ def test_window_layout_is_remembered_on_this_computer_only(pump_gui, qapp, tmp_p
     second.layout_file = str(state)
     try:
         assert second.restore_layout()
-        assert (second.width(), second.height()) == (800, 650)
+        assert (second.width(), second.height()) == (width, 650)
     finally:
         second.timer.stop()
         second.close()  # never shown, so it doesn't overwrite the saved layout
@@ -776,6 +777,8 @@ def test_window_works_at_its_minimum_size(window, qapp, pump_gui):
 
 
 def test_divider_positions_are_remembered(pump_gui, qapp, tmp_path):
+    import json
+
     from PyQt6.QtCore import QRect
 
     state = tmp_path / "window_state.json"
@@ -790,14 +793,17 @@ def test_divider_positions_are_remembered(pump_gui, qapp, tmp_path):
     qapp.processEvents()
     first.timer.stop()
     first.close()
+    saved = json.loads(state.read_text(encoding="utf-8"))["splitters"]
+    assert set(saved) == {"main", "logs"}
 
     second = pump_gui.MasterflexPumpGUI()
     second.layout_file = str(state)
     try:
         assert second.restore_layout()
-        second.show()
-        qapp.processEvents()
-        assert abs(second.main_splitter.sizes()[0] - target) <= 2
+        # The dividers are put back exactly as saved. (Their pixel sizes then depend on how
+        # big the screen lets the window be, which differs between systems.)
+        restored = bytes(second.main_splitter.saveState().toBase64()).decode("ascii")
+        assert restored == saved["main"]
     finally:
         second.layout_file = None
         second.timer.stop()
