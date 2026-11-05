@@ -7,6 +7,53 @@ the last, and changes that break existing settings or workflows bump the first.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-04
+
+A reworked window: safer controls, all the readouts on screen at once, and a layout that works
+on a laptop and at the window's minimum size. Tested with a simulated pump; try a short run on
+the pump before relying on it for an experiment.
+
+### Added
+- **A red warning banner** across the top when the pump head is open, the pump reports a fault
+  (Status OK: NO) or the pump stops answering.
+- **Esc stops the pump** (and any Time/Volume program) at any time.
+- **Whole-program estimate** in Time and Volume mode, updated as you type: how long each
+  dispense takes (Volume) or how much it pumps (Time), and the whole program with its pauses.
+- **Remembered between sessions**: Auto-Log Runs (it was off again at every start), which
+  sections you closed, and where you put the dividers between the panels.
+- Right-click a dashboard tile to move it earlier or later.
+
+### Changed
+- **Pump controls are greyed out until you're connected** (Start, Enable Remote, the Reset
+  buttons). Start without a connection says so instead of logging "Command: START". Apply
+  Parameters still checks the values and says they're sent when you connect.
+- **Changing the mode, direction or flow unit while the pump runs asks first.** Say no and the
+  old choice comes back with the pump still running. When the pump is stopped, nothing is asked.
+- **Reset Vol asks first, and isn't allowed during a run** (the run's logged volume is counted
+  from that counter).
+- **Start / Stop is the first and largest button.**
+- **The readouts are tiles in a grid** (three across, two when narrow), so flow, volume, run
+  time, RPM and batch all show without scrolling. Reset sits beside its value.
+- **New layout**: the left panel is resizable instead of a fixed 450 px, the run history and
+  event log sit side by side, notes and tokens share one row, and the status indicators are in
+  the window's status bar. The large "MasterFlex Controller" heading is gone, and the pump
+  address and Search button share a row, so the left panel fits a 768 px screen.
+- **Run history is a table** (Date/Time, Event, Mode, Flow, In CSV, Details). Rows not yet in
+  run_log.csv are grey italics instead of red, which looked like an error.
+- **The event log shows the time** on every line, and the mode by name ("Mode set to: Time").
+- **Parameter boxes take numbers only**, and labels carry their units ("Dispense Volume (mL)",
+  "On Time (s)", "Batch Total (0 = repeat)").
+- **Direction is a Clockwise / Counter-clockwise choice** instead of a "Direction (CCW)" checkbox.
+- Removing a metadata token asks first and names the value that would be lost.
+- Settings window: no longer floats over other apps; Max Drive RPM is saved as you change it (no
+  Save Settings button) and says what it's for; the duplicate Open CSV Log button is gone.
+- The search button reads "🔍 Search"; the ⚙ button's tooltip says Settings.
+
+### Fixed
+- At 800 × 600 (the smallest the window goes) the panels overlapped and cut off text.
+- Messages containing `<` or `&` could garble the event log.
+
+
 ## [1.3.0] - 2026-10-28
 
 ### Added
