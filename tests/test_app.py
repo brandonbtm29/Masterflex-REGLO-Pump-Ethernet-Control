@@ -128,20 +128,20 @@ def test_history_delete_asks_first_and_keeps_order(window, pump_gui, monkeypatch
     for path in (pump_gui.RUN_LOG, pump_gui.RUN_LOG_BACKUP):
         if os.path.exists(path):
             os.remove(path)
-    window.run_log_list.clear()
+    window.run_table.setRowCount(0)
     window.log_started_run()
     window.log_finished_run(0.0)
     window.log_started_run()
-    assert window.run_log_list.count() == 3
+    assert window.run_table.rowCount() == 3
 
     monkeypatch.setattr(window, "_confirm", lambda *a: False)
-    window.run_log_list.item(0).setSelected(True)
+    window.run_table.selectRow(0)
     window.cmd_delete_selected_logs()
-    assert window.run_log_list.count() == 3  # said no
+    assert window.run_table.rowCount() == 3  # said no
 
     monkeypatch.setattr(window, "_confirm", lambda *a: True)
     window.cmd_delete_selected_logs()
-    assert window.run_log_list.count() == 2
+    assert window.run_table.rowCount() == 2
     events = [r["Event"] for r in runlog.read(pump_gui.RUN_LOG_BACKUP)[1]]
     assert events == ["START", "END"]  # still oldest first
     assert os.path.exists(pump_gui.RUN_LOG_BACKUP + ".bak")
@@ -860,3 +860,66 @@ def test_direction_is_a_clear_choice_and_is_saved(window, pump_gui):
     finally:
         again.timer.stop()
         again.close()
+
+
+# --- Logs: times, a history table, settings that stick --------------------------------------
+
+
+def test_event_log_lines_have_the_time_and_are_escaped(window):
+    import re
+
+    window.log_msg_ui("flow <5> & rising")
+    window.log_error_ui("boom")
+    text = window.console_textbox.toPlainText()
+    assert re.search(r"\d\d:\d\d:\d\d\s+Error: boom", text)
+    assert re.search(r"\d\d:\d\d:\d\d\s+flow <5> & rising", text)  # shown as typed, not as HTML
+
+
+def test_history_is_a_table_and_unsaved_rows_are_marked(window, pump_gui):
+    for path in (pump_gui.RUN_LOG, pump_gui.RUN_LOG_BACKUP):
+        if os.path.exists(path):
+            os.remove(path)
+    window.run_table.setRowCount(0)
+    window.auto_log_cb.setChecked(False)
+    window.flow_entry.setText("5")
+    window.log_started_run()
+    cells = [window.run_table.item(0, c).text() for c in range(window.run_table.columnCount())]
+    assert cells[1:5] == ["START", "Continuous", "5 mL/min", "No"]
+    assert window.run_table.item(0, 0).font().italic()
+    window.run_table.selectRow(0)
+    window.cmd_save_selected_logs()
+    assert window.run_table.item(0, 4).text() == "Yes (saved later)"
+    assert not window.run_table.item(0, 0).font().italic()
+    window.auto_log_cb.setChecked(True)
+    window.log_finished_run(1.0)
+    assert window.run_table.item(0, 4).text() == "Yes" and window.run_table.item(0, 1).text() == "END"
+
+
+def test_auto_log_and_closed_sections_are_remembered(window, pump_gui):
+    window.auto_log_cb.setChecked(True)
+    notes = next(
+        b for b in window.findChildren(pump_gui.CollapsibleBox) if b.title_text == "Experimental Notes"
+    )
+    notes.toggle_button.click()  # close it
+    assert "Experimental Notes" in window.config_data["collapsed_sections"]
+    again = pump_gui.MasterflexPumpGUI()
+    try:
+        assert again.auto_log_cb.isChecked()
+        boxes = {b.title_text: b for b in again.findChildren(pump_gui.CollapsibleBox)}
+        assert not boxes["Experimental Notes"].toggle_button.isChecked()
+        assert boxes["Connection"].toggle_button.isChecked()
+    finally:
+        again.timer.stop()
+        again.close()
+
+
+def test_removing_a_token_asks_first(window, monkeypatch):
+    window.token_inputs["Material"].setText("Sample media A")
+    asked = []
+    monkeypatch.setattr(window, "_confirm", lambda title, text: asked.append(text) or False)
+    window.cmd_remove_token("Material")
+    assert "Material" in window.token_inputs and "Sample media A" in asked[0]
+    monkeypatch.setattr(window, "_confirm", lambda *a: True)
+    window.cmd_remove_token("Material")
+    assert "Material" not in window.token_inputs
+    assert "Material" not in window.config_data["metadata_tokens"]

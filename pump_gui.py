@@ -45,6 +45,7 @@ RUN_LOG_BACKUP = os.path.join(LOG_DIR, "run_log_backup.csv")
 ASSETS = os.path.join(script_dir, "assets")
 APP_NAME = "Masterflex REGLO Pump Control"
 
+import html
 import json
 import logging
 import platform
@@ -90,6 +91,8 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QTextEdit,
     QToolButton,
@@ -129,6 +132,7 @@ ALARM_STYLE = (
     "border-radius: 4px; padding: 8px 12px; }"
 )
 MODE_NAMES = ["Continuous", "Time", "Volume"]
+HISTORY_COLUMNS = ["Date/Time", "Event", "Mode", "Flow", "In CSV", "Details"]
 FLOW_UNITS = proto.FLOW_UNITS
 TUBE_CODES_MM = proto.TUBE_CODES_MM
 log = logging.getLogger("masterflex_pump")
@@ -232,6 +236,7 @@ class CollapsibleBox(QWidget):
         )
         self.toggle_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.toggle_button.clicked.connect(self.on_toggle)
+        self.toggled_by_user = None  # set by the window: called with (title, expanded) to save it
 
         self.content_area = QWidget()
         self.content_area.setVisible(expanded)
@@ -247,6 +252,15 @@ class CollapsibleBox(QWidget):
         title = self.title_text.replace("&", "&&")  # a single & would become a keyboard shortcut
         self.toggle_button.setText(f"▼ {title}" if checked else f"▶ {title}")
         self.content_area.setVisible(checked)
+        if self.toggled_by_user:
+            self.toggled_by_user(self.title_text, checked)
+
+    def set_expanded(self, expanded):
+        """Open or close it from code (e.g. as it was last time), without saving."""
+        self.toggle_button.setChecked(expanded)
+        callback, self.toggled_by_user = self.toggled_by_user, None
+        self.on_toggle(expanded)
+        self.toggled_by_user = callback
 
 
 class TileGrid(QWidget):
@@ -999,10 +1013,22 @@ class MasterflexPumpGUI(QMainWindow):
         history_layout.setContentsMargins(0, 0, 0, 0)
         history_layout.addWidget(QLabel("<b>Dispense Run History</b>"))
 
-        self.run_log_list = QListWidget()
-        self.run_log_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.run_log_list.setStyleSheet("QListWidget::item { padding: 4px; }")
-        history_layout.addWidget(self.run_log_list, 1)
+        # A table, newest first: one column per field instead of one long line per run.
+        self.run_table = QTableWidget(0, len(HISTORY_COLUMNS))
+        self.run_table.setHorizontalHeaderLabels(HISTORY_COLUMNS)
+        self.run_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.run_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.run_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.run_table.setWordWrap(False)
+        self.run_table.verticalHeader().setVisible(False)
+        self.run_table.horizontalHeader().setStretchLastSection(True)
+        for column, width in enumerate((140, 55, 85, 105, 70)):
+            self.run_table.setColumnWidth(column, width)
+        self.run_table.horizontalHeaderItem(4).setToolTip(
+            "Whether the row is in run_log.csv. Turn on Auto-Log Runs, or select rows and click "
+            "Save Selected Logs. Every row is always in run_log_backup.csv."
+        )
+        history_layout.addWidget(self.run_table, 1)
 
         logs_btn_layout = QHBoxLayout()
         history_layout.addLayout(logs_btn_layout)
@@ -1047,7 +1073,9 @@ class MasterflexPumpGUI(QMainWindow):
         notes_controls.addWidget(self.open_log_file_btn)
 
         self.auto_log_cb = QCheckBox("Auto-Log Runs")
-        self.auto_log_cb.setChecked(False)
+        self.auto_log_cb.setToolTip("Write every START and END row to run_log.csv as it happens.")
+        self.auto_log_cb.setChecked(bool(self.config_data.get("auto_log", False)))
+        self.auto_log_cb.toggled.connect(lambda _: self.save_all_settings())
         notes_controls.addWidget(self.auto_log_cb)
         notes_controls.addStretch()
         notes_layout.addLayout(notes_controls)
@@ -1134,10 +1162,22 @@ class MasterflexPumpGUI(QMainWindow):
         # To put the old choice back if a change is cancelled:
         self._mode_id = self.mode_group.checkedId()
         self._unit_text = self.unit_menu.currentText()
+        # Sections open or closed as they were last time.
+        collapsed = set(self.config_data.get("collapsed_sections") or [])
+        for box in self.findChildren(CollapsibleBox):
+            if box.title_text in collapsed:
+                box.set_expanded(False)
+            box.toggled_by_user = self._section_toggled
         # The left panel never scrolls sideways, so make it at least as wide as its contents.
         bar = self._left_scroll.verticalScrollBar().sizeHint().width()
         self._left_scroll.setMinimumWidth(self._left_scroll.widget().minimumSizeHint().width() + bar)
         self.update_control_states()
+
+    def _section_toggled(self, title, expanded):
+        collapsed = set(self.config_data.get("collapsed_sections") or [])
+        (collapsed.discard if expanded else collapsed.add)(title)
+        self.config_data["collapsed_sections"] = sorted(collapsed)
+        self.save_all_settings()
 
     def update_control_states(self):
         """Grey out the controls that need the pump while there's no connection, so nothing
@@ -1254,6 +1294,7 @@ class MasterflexPumpGUI(QMainWindow):
         self.config_data["off_time"] = self.off_time_entry.text()
         self.config_data["batch"] = self.batch_entry.text()
         self.config_data["notes"] = self.notes_entry.toPlainText()
+        self.config_data["auto_log"] = self.auto_log_cb.isChecked()
 
         if hasattr(self, "token_inputs") and hasattr(self, "get_token_order"):
             self.config_data["metadata_tokens"] = {
@@ -1310,9 +1351,10 @@ class MasterflexPumpGUI(QMainWindow):
         row_layout.addWidget(lbl)
         row_layout.addWidget(ent)
 
-        btn_del = QPushButton("-")
-        btn_del.setFixedWidth(20)
-        btn_del.clicked.connect(lambda _, n=name: self.remove_custom_token(n))
+        btn_del = QPushButton("−")
+        btn_del.setFixedWidth(24)
+        btn_del.setToolTip(f"Remove the {name} token")
+        btn_del.clicked.connect(lambda _, n=name: self.cmd_remove_token(n))
         row_layout.addWidget(btn_del)
 
         item = QListWidgetItem(self.tokens_list)
@@ -1322,6 +1364,16 @@ class MasterflexPumpGUI(QMainWindow):
         self.tokens_list.addItem(item)
         self.tokens_list.setItemWidget(item, row_widget)
         self.token_inputs[name] = ent
+
+    def cmd_remove_token(self, name):
+        """The token's − button: asks first, since the value is lost and new log rows lose the column."""
+        value = self.token_inputs[name].text().strip() if name in self.token_inputs else ""
+        text = f"Remove the '{name}' token? New log rows won't have this column."
+        if value:
+            text += f"\n\nIts value ({value}) will be lost."
+        if self._confirm("Remove token", text):
+            self.remove_custom_token(name)
+            self.save_all_settings()
 
     def remove_custom_token(self, name):
         if name in self.token_inputs:
@@ -1563,19 +1615,20 @@ class MasterflexPumpGUI(QMainWindow):
         self.reset_batch_btn.setText("🔄" if use_icons else "Reset Batch")
         self.reset_batch_btn.setToolTip("Reset Batch Count" if use_icons else "")
 
-    def log_msg_ui(self, msg):
+    def _log_line(self, html_text):
+        """Put a line at the top of the event log (newest first), with the time."""
+        stamp = time.strftime("%H:%M:%S")
         cursor = self.console_textbox.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         self.console_textbox.setTextCursor(cursor)
-        self.console_textbox.insertHtml(f"[INFO] {msg}<br>")
+        self.console_textbox.insertHtml(f"<span style='color:#9a9a9a;'>{stamp}</span>&nbsp; {html_text}<br>")
         self.console_textbox.moveCursor(QTextCursor.MoveOperation.Start)
 
+    def log_msg_ui(self, msg):
+        self._log_line(html.escape(str(msg)))
+
     def log_error_ui(self, msg):
-        cursor = self.console_textbox.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.Start)
-        self.console_textbox.setTextCursor(cursor)
-        self.console_textbox.insertHtml(f"<span style='color:red;'>[ERROR] {msg}</span><br>")
-        self.console_textbox.moveCursor(QTextCursor.MoveOperation.Start)
+        self._log_line(f"<span style='color:#ff6b6b;'>Error: {html.escape(str(msg))}</span>")
 
     def log_msg(self, msg):
         self.signals.log_msg_signal.emit(msg)
@@ -1935,25 +1988,48 @@ class MasterflexPumpGUI(QMainWindow):
                 values[column] = self.token_inputs[name].text()
         return values
 
-    @staticmethod
-    def _history_text(row):
-        event = row.get("Event", "")
-        event_str = event if len(event) >= 5 else event.center(5)
-        text = f"[{row.get('Date/Time', '')}] [{event_str}] Mode: {row.get('Mode', '')} | Flow: {row.get('Flow Rate', '')}"
-        if row.get("Other Info"):
-            text += " | " + row["Other Info"].replace("; ", " | ")
-        return text
-
     def _add_history_item(self, row, saved):
-        item = QListWidgetItem(self._history_text(row) + ("" if saved else " (Not Saved to CSV)"))
-        item.setData(Qt.ItemDataRole.UserRole, row)
-        item.setForeground(QColor("white") if saved else QColor("red"))
-        self.run_log_list.insertItem(0, item)
+        """Add a run row to the top of the history table. ``saved``: is it in run_log.csv."""
+        self.run_table.insertRow(0)
+        values = (
+            row.get("Date/Time", ""),
+            row.get("Event", ""),
+            row.get("Mode", ""),
+            row.get("Flow Rate", ""),
+            "",
+            (row.get("Other Info") or "").replace("; ", " | "),
+        )
+        for column, value in enumerate(values):
+            self.run_table.setItem(0, column, QTableWidgetItem(value))
+        self.run_table.item(0, 0).setData(Qt.ItemDataRole.UserRole, row)
+        self._mark_saved(0, "yes" if saved else "no")
+
+    def _mark_saved(self, index, state):
+        """Show whether row ``index`` is in run_log.csv: 'yes', 'later' (Save Selected) or 'no'.
+        Rows that aren't are shown in grey italics (not red: nothing went wrong)."""
+        text = {"yes": "Yes", "later": "Yes (saved later)", "no": "No"}[state]
+        self.run_table.item(index, 4).setText(text)
+        self.run_table.item(index, 0).setData(Qt.ItemDataRole.UserRole + 1, state)
+        for column in range(self.run_table.columnCount()):
+            item = self.run_table.item(index, column)
+            font = item.font()
+            font.setItalic(state == "no")
+            item.setFont(font)
+            item.setForeground(QColor("#9a9a9a") if state == "no" else QColor("white"))
+
+    def history_rows(self):
+        """The run rows in the history, newest first."""
+        return [
+            self.run_table.item(i, 0).data(Qt.ItemDataRole.UserRole) for i in range(self.run_table.rowCount())
+        ]
+
+    def _selected_history(self):
+        return sorted({index.row() for index in self.run_table.selectionModel().selectedRows()})
 
     def write_run_log(self, row):
         save = self.auto_log_cb.isChecked()
         self._add_history_item(row, save)
-        self.run_log_list.scrollToTop()
+        self.run_table.scrollToTop()
         try:
             runlog.append(RUN_LOG_BACKUP, row)
         except Exception as e:
@@ -1965,25 +2041,24 @@ class MasterflexPumpGUI(QMainWindow):
                 self.log_error(f"Failed to write to CSV: {e}")
 
     def cmd_save_selected_logs(self):
-        selected = self.run_log_list.selectedItems()
+        selected = self._selected_history()
         if not selected:
             self.log_msg_ui("No logs selected to save.")
             return
-        # oldest first, so the file stays in time order
-        selected.sort(key=lambda item: self.run_log_list.row(item), reverse=True)
-        rows = [item.data(Qt.ItemDataRole.UserRole) for item in selected]
-        rows = [row for row in rows if row]
+        # oldest first (bottom of the table first), so the file stays in time order
+        selected.reverse()
+        all_rows = self.history_rows()
+        rows = [all_rows[i] for i in selected if all_rows[i]]
         try:
             runlog.append(RUN_LOG, rows)
         except Exception as e:
             self.log_error(f"Failed to write selected logs to CSV: {e}")
             return
-        for item in selected:
-            if item.text().endswith(" (Not Saved to CSV)"):
-                item.setText(item.text().replace(" (Not Saved to CSV)", " (Saved manually)"))
-                item.setForeground(QColor("white"))
+        for index in selected:
+            if self.run_table.item(index, 0).data(Qt.ItemDataRole.UserRole + 1) == "no":
+                self._mark_saved(index, "later")
         self.log_msg_ui(f"Saved {len(rows)} selected logs to CSV.")
-        self.run_log_list.clearSelection()
+        self.run_table.clearSelection()
 
     def _confirm(self, title, text):
         """Ask a yes/no question (tests replace this)."""
@@ -1991,7 +2066,7 @@ class MasterflexPumpGUI(QMainWindow):
         return answer == QMessageBox.StandardButton.Yes
 
     def cmd_delete_selected_logs(self):
-        selected = self.run_log_list.selectedItems()
+        selected = self._selected_history()
         if not selected:
             self.log_msg_ui("No logs selected to delete.")
             return
@@ -2002,16 +2077,14 @@ class MasterflexPumpGUI(QMainWindow):
             "run_log_backup.csv.bak.",
         ):
             return
-        for item in selected:
-            self.run_log_list.takeItem(self.run_log_list.row(item))
+        for index in reversed(selected):
+            self.run_table.removeRow(index)
         self.rewrite_backup_log()
         self.log_msg_ui(f"Deleted {len(selected)} selected logs.")
 
     def rewrite_backup_log(self):
         # The list shows newest first; the file is kept oldest first.
-        rows = [
-            self.run_log_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.run_log_list.count())
-        ]
+        rows = self.history_rows()
         try:
             runlog.rewrite(RUN_LOG_BACKUP, [row for row in reversed(rows) if row])
         except Exception as e:
@@ -2028,9 +2101,11 @@ class MasterflexPumpGUI(QMainWindow):
         except Exception as e:
             self.log_error(f"Failed to load backup logs: {e}")
             return
+        self.run_table.setUpdatesEnabled(False)  # one repaint, not one per row
         for row in rows:
             self._add_history_item(row, runlog.key(row) in saved)
-        self.run_log_list.scrollToTop()
+        self.run_table.setUpdatesEnabled(True)
+        self.run_table.scrollToTop()
 
     def _run_row(self, event, info):
         mode = self.mode_group.checkedId()

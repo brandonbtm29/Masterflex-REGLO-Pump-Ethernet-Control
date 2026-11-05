@@ -105,8 +105,9 @@ def test_disconnect_while_running_stops_the_pump_and_logs_the_end(connected):
     window.disconnect()
     assert pump.writes and pump.writes[0][0] & 1 == 0  # Stop sent before closing
     assert not window.connected and not window.run_log_active
-    history = [window.run_log_list.item(i).text() for i in range(window.run_log_list.count())]
-    assert "[ END ]" in history[0] and "app disconnected during the run" in history[0]
+    newest = window.history_rows()[0]
+    assert newest["Event"] == "END" and "app disconnected during the run" in newest["Other Info"]
+    assert "app disconnected during the run" in window.run_table.item(0, 5).text()
     assert "Stopped the pump before disconnecting" in console(window)
 
 
