@@ -765,13 +765,13 @@ def test_tiles_can_be_reordered_and_the_order_is_kept(window, pump_gui):
         again.close()
 
 
-def test_window_works_at_its_minimum_size(window, qapp):
+def test_window_works_at_its_minimum_size(window, qapp, pump_gui):
     window.resize(window.minimumSize())
     window.show()
     qapp.processEvents()
     left, right = window.main_splitter.widget(0), window.main_splitter.widget(1)
     assert left.geometry().right() < right.geometry().left()  # side by side, not overlapping
-    assert right.width() >= 300
+    assert right.width() >= pump_gui.RIGHT_PANEL_MIN
     assert window.tiles.columns == 2  # narrow: two tiles across
 
 
@@ -781,10 +781,12 @@ def test_divider_positions_are_remembered(pump_gui, qapp, tmp_path):
     state = tmp_path / "window_state.json"
     first = pump_gui.MasterflexPumpGUI()
     first.layout_file = str(state)
-    first.setGeometry(QRect(0, 40, 800, 650))
+    width = first.minimumWidth() + 100  # fonts differ between systems, so measure
+    target = first._left_scroll.minimumWidth() + 30
+    first.setGeometry(QRect(0, 40, width, 650))
     first.show()
     qapp.processEvents()
-    first.main_splitter.setSizes([380, 420])
+    first.main_splitter.setSizes([target, width - target])
     qapp.processEvents()
     first.timer.stop()
     first.close()
@@ -795,7 +797,7 @@ def test_divider_positions_are_remembered(pump_gui, qapp, tmp_path):
         assert second.restore_layout()
         second.show()
         qapp.processEvents()
-        assert abs(second.main_splitter.sizes()[0] - 380) <= 2
+        assert abs(second.main_splitter.sizes()[0] - target) <= 2
     finally:
         second.layout_file = None
         second.timer.stop()

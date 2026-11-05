@@ -133,6 +133,7 @@ ALARM_STYLE = (
     "border-radius: 4px; padding: 8px 12px; }"
 )
 MODE_NAMES = ["Continuous", "Time", "Volume"]
+RIGHT_PANEL_MIN = 320  # px the readouts and logs need beside the left panel
 HISTORY_COLUMNS = ["Date/Time", "Event", "Mode", "Flow", "In CSV", "Details"]
 FLOW_UNITS = proto.FLOW_UNITS
 TUBE_CODES_MM = proto.TUBE_CODES_MM
@@ -947,6 +948,7 @@ class MasterflexPumpGUI(QMainWindow):
         right_widget = QWidget()
         right_panel = QVBoxLayout(right_widget)
         right_panel.setContentsMargins(6, 0, 0, 0)
+        right_widget.setMinimumWidth(RIGHT_PANEL_MIN)
         self.main_splitter.addWidget(right_widget)
         self.main_splitter.setStretchFactor(0, 0)
         self.main_splitter.setStretchFactor(1, 1)
@@ -1162,7 +1164,11 @@ class MasterflexPumpGUI(QMainWindow):
             box.toggled_by_user = self._section_toggled
         # The left panel never scrolls sideways, so make it at least as wide as its contents.
         bar = self._left_scroll.verticalScrollBar().sizeHint().width()
-        self._left_scroll.setMinimumWidth(self._left_scroll.widget().minimumSizeHint().width() + bar)
+        left_min = self._left_scroll.widget().minimumSizeHint().width() + bar
+        self._left_scroll.setMinimumWidth(left_min)
+        # And never let the window get narrower than both panels need (bigger fonts or display
+        # scaling make the left panel wider), or they'd overlap.
+        self.setMinimumWidth(max(self.minimumWidth(), left_min + RIGHT_PANEL_MIN + 40))
         self.update_control_states()
 
     def _section_toggled(self, title, expanded):
