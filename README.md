@@ -26,18 +26,23 @@ any REGLO with Advanced Connectivity (models 78018-10, 78018-12, 78018-40 and si
 
 - **Connect by IP or search the network**: type the pump's address, or let the app find it.
 - **Live dashboard**: flow rate, cumulative volume, run time (and time left in a dispense),
-  estimated RPM, batch progress, run state, remote/local mode, head-open warning and tube size,
-  updated 10 times a second. Drag the tiles into the order you like.
+  estimated RPM and batch progress as tiles that all fit on screen, plus run state, remote/local
+  mode and tube size, updated 10 times a second. Right-click a tile to move it.
+- **Warnings you can't miss**: a red banner when the pump head is open, the pump reports a
+  fault, or the pump stops answering.
 - **Continuous, Time and Volume modes**: Time and Volume modes dispense for a set time or
   volume, pause for an interval, and repeat a set number of times (or until you stop them).
-  Volume mode shows an estimated run time before you start.
+  Before you start, the app shows how long each dispense and the whole program will take (or,
+  in Time mode, how much each dispense pumps).
 - **Flow units**: all 16 units the drive supports (mL/min, µL/hr, L/day, RPM, % and more). The
   slider and Apply are limited to the pump's calibrated minimum and maximum, and impossible
   values (0 or negative) are refused with a message.
 - **Direction, remote mode, and reset** of cumulative volume and batch count from the app.
+  Changing the mode, direction or flow unit while the pump runs asks first, and the pump
+  controls are greyed out until you're connected. **Esc** stops the pump at any time.
 - **Run log**: every start and finish (time, mode, flow, volume dispensed, duration) goes into
-  a run history. With Auto-Log on, runs are also written to a CSV file; otherwise you pick which
-  runs to save. Columns stay lined up when you add or remove metadata fields.
+  a run history table. With Auto-Log on, runs are also written to a CSV file; otherwise you pick
+  which runs to save (the table shows which rows are in the CSV). Columns stay lined up when you add or remove metadata fields.
 - **Safe stops**: Disconnect or closing the app stops a running pump first and logs the end of
   the run. A program that sees the pump stopped from its touchscreen gives up instead of
   restarting it later.
@@ -52,7 +57,8 @@ any REGLO with Advanced Connectivity (models 78018-10, 78018-12, 78018-40 and si
   **One-click updates** in ⚙ → App.
 - **Only one copy at a time**: opening the app again brings the open window to the front instead
   of starting a second copy, so two copies can never send commands to the same pump.
-- **Remembers its window**: size, position and whether it was maximized, per computer.
+- **Remembers its window**: size, position, whether it was maximized and where you put the
+  dividers between the panels, per computer; and which sections you closed.
 - **Desktop icon** with the pump logo (a Mac app, a Windows shortcut, a Linux menu entry),
   added the first time the app runs and kept up to date. It starts the app with no console or
   Terminal window.
@@ -105,17 +111,19 @@ In the app: enter the pump's IP address (or click the search button), click **Co
 
 | Control | What it does |
 |---|---|
-| Search (🔍) | Looks for EtherNet/IP devices on the local network and fills in the pump's address |
+| 🔍 Search | Looks for EtherNet/IP devices on the local network and fills in the pump's address |
 | Connect / Disconnect | Opens or closes the EtherNet/IP connection |
 | Enable / Disable Remote | Switches the pump between touchscreen (local) and computer (remote) control |
-| Start / Run, Stop / Pause | Starts or pauses the pump (or a Time/Volume program, including its pauses). Start also applies the current parameters |
-| Direction (CCW) | Counter-clockwise when ticked. Changing it stops the pump first |
-| Operation Mode | Continuous runs until stopped. Time runs for On Time seconds, Volume until the Dispense Volume is pumped; both then pause for Off/Interval seconds and repeat Batch Total times (0 = until stopped) |
-| Apply Parameters | Sends flow rate, volume, times and batch count to the pump |
-| 🔄 under the tiles | Resets cumulative volume or batch count |
-| Save Selected / Delete Selected | Writes chosen runs from the history to the CSV log, or removes them from the history and `run_log_backup.csv` (after asking; the previous file is kept as `.bak`) |
+| Start / Run, Stop / Pause (top left) | Starts or pauses the pump (or a Time/Volume program, including its pauses). Start also applies the current parameters. **Esc** stops the pump at any time |
+| Direction | Clockwise or Counter-clockwise. Changing it while the pump runs asks first, then stops the pump |
+| Mode | Continuous runs until stopped. Time runs for On Time seconds, Volume until the Dispense Volume is pumped; both then pause for Off/Interval seconds and repeat Batch Total times (0 = until stopped). Changing it while the pump runs asks first |
+| Apply Parameters | Sends flow rate, volume, times and batch count to the pump (when not connected, it checks them and they're sent when you connect) |
+| 🔄 on the tiles | Resets cumulative volume (asks first; not during a run) or batch count |
+| Right-click a tile | Moves it earlier or later |
+| Save Selected / Delete Selected | Writes chosen runs from the history table to the CSV log, or removes them from the history and `run_log_backup.csv` (after asking; the previous file is kept as `.bak`). The In CSV column shows which rows are in the CSV |
+| − next to a token | Removes that metadata field (after asking) |
 | Open Log Folder / Open Log File | Opens the data folder or the CSV log |
-| ⚙ → Hardware | Maximum drive RPM (for the RPM estimate), icon buttons, the settings folder |
+| ⚙ → Hardware | Maximum drive RPM (for the RPM estimate; saved as you change it), icon buttons, the settings folder |
 | ⚙ → App | Version, **Check for Updates**, **Check for updates when the app starts** (on by default), a button to add the desktop icon again, **Open Log Folder** (the error log) and **Copy Diagnostics** |
 | Version (bottom right) | Turns orange when a newer release exists; click it to get to Check for Updates |
 | ⚙ → Firmware | Copies a firmware file onto a USB drive and shows the pump's update steps |
@@ -161,9 +169,11 @@ The app writes `pump_config.json` itself; you don't need to edit it.
 | `unit` | Flow unit, e.g. `mL/min` |
 | `flow`, `vol`, `on_time`, `off_time`, `batch` | Last parameter values |
 | `notes` | Experiment notes box |
+| `auto_log` | Auto-Log Runs ticked (default `false`) |
+| `collapsed_sections` | Titles of the sections you closed |
 | `use_icons` | Icon buttons instead of text |
 | `check_updates_on_start` | Ask GitHub for a newer release at start-up and daily (default `true`) |
-| `monitor_order` | Order of the dashboard tiles |
+| `monitor_order` | Order of the dashboard tiles (right-click a tile to move it) |
 | `metadata_tokens` | Metadata fields and their values, in order |
 
 ## How it works

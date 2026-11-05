@@ -10,6 +10,8 @@
   "off_time": "0.0",
   "batch": "1",
   "notes": "",
+  "auto_log": false,
+  "collapsed_sections": [],
   "use_icons": true,
   "check_updates_on_start": true,
   "monitor_order": ["flow", "vol", "calc_time", "rpm", "batch"],
