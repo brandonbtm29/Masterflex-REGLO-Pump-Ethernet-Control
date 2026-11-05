@@ -73,6 +73,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -110,7 +111,7 @@ try:
     # Minimal EtherNet/IP driver bypassing strict identity handshakes
     class PumpDriver(LogixDriver):
         def _initialize_driver(self, *args, **kwargs):
-            # Bypass strict Rockwell PLC identity checks that crash on MasterFlex pumps
+            # Bypass strict Rockwell PLC identity checks that crash on Masterflex pumps
             pass
 
         def get_plc_info(self) -> dict:
@@ -374,8 +375,7 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings & Documentation")
-        self.resize(520, 440)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+        self.resize(520, 440)  # in front of the app's window only (it's modal), not every window
 
         layout = QVBoxLayout(self)
 
@@ -386,21 +386,22 @@ class SettingsDialog(QDialog):
         hw_tab = QWidget()
         hw_layout = QGridLayout(hw_tab)
 
+        # Everything on this tab takes effect (and is saved) straight away: no Save button.
         hw_layout.addWidget(QLabel("Max Drive RPM:"), 0, 0)
-        self.rpm_entry = QLineEdit()
-        self.rpm_entry.setText(str(parent.hardware_max_rpm))
-        hw_layout.addWidget(self.rpm_entry, 0, 1)
-
-        self.save_btn = QPushButton("Save Settings")
-        self.save_btn.setStyleSheet(
-            f"background-color: {MASTERFLEX_ORANGE}; color: white; font-weight: bold;"
+        self.rpm_spin = QDoubleSpinBox()
+        self.rpm_spin.setRange(1, 1000)
+        self.rpm_spin.setDecimals(0)
+        self.rpm_spin.setValue(parent.hardware_max_rpm)
+        self.rpm_spin.setKeyboardTracking(False)  # save when you press Enter or leave the box
+        self.rpm_spin.valueChanged.connect(parent.save_settings)
+        hw_layout.addWidget(self.rpm_spin, 0, 1)
+        rpm_help = QLabel(
+            "The drive's speed at its maximum flow. Only used to estimate the RPM tile "
+            "(the pump doesn't report its speed)."
         )
-        self.save_btn.clicked.connect(self.on_save)
-        hw_layout.addWidget(self.save_btn, 1, 0, 1, 2)
-
-        self.open_log_btn = QPushButton("Open CSV Log")
-        self.open_log_btn.clicked.connect(self.on_open_log)
-        hw_layout.addWidget(self.open_log_btn, 2, 0, 1, 2)
+        rpm_help.setWordWrap(True)
+        rpm_help.setStyleSheet("color: grey;")
+        hw_layout.addWidget(rpm_help, 1, 0, 1, 2)
 
         self.use_icons_checkbox = QCheckBox("Use Icons for Buttons")
         self.use_icons_checkbox.setChecked(parent.config_data.get("use_icons", True))
@@ -420,6 +421,7 @@ class SettingsDialog(QDialog):
             1,
             2,
         )
+        hw_layout.setRowStretch(hw_layout.rowCount(), 1)  # keep the rows together at the top
         self.tabview.addTab(hw_tab, "Hardware")
 
         # App Tab: version, updates, desktop icon
@@ -640,19 +642,9 @@ class SettingsDialog(QDialog):
         self.parent().save_all_settings()
         self.parent().update_button_styles()
 
-    def on_save(self):
-        try:
-            val = float(self.rpm_entry.text())
-            self.parent().save_settings(val)
-            self.accept()
-        except ValueError:
-            self.parent().log_error("Invalid Max RPM value.")
-
-    def on_open_log(self):
-        if os.path.exists(RUN_LOG):
-            open_path(RUN_LOG)
-        else:
-            self.parent().log_error("run_log.csv does not exist yet.")
+    def done(self, result):
+        self.rpm_spin.interpretText()  # a value typed but not yet entered is still saved
+        super().done(result)
 
     def on_create_update_drive(self):
         firmware_path, _ = QFileDialog.getOpenFileName(self, "Select Masterflex Firmware Update File")
@@ -802,7 +794,7 @@ class MasterflexPumpGUI(QMainWindow):
 
         top_bar_layout.addStretch()
 
-        self.settings_btn = QPushButton("⚙ Hardware Settings")
+        self.settings_btn = QPushButton("⚙ Settings")
         self.settings_btn.clicked.connect(self.cmd_open_settings)
         top_bar_layout.addWidget(self.settings_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
 
@@ -1402,7 +1394,7 @@ class MasterflexPumpGUI(QMainWindow):
         try:
             self.hardware_max_rpm = float(max_rpm)
             self.save_all_settings()
-            self.log_msg(f"Hardware Settings saved! Max RPM: {self.hardware_max_rpm}")
+            self.log_msg(f"Max drive RPM set to {self.hardware_max_rpm:g}.")
         except ValueError:
             self.log_error("Invalid Max RPM value.")
 
@@ -1603,11 +1595,12 @@ class MasterflexPumpGUI(QMainWindow):
     def update_button_styles(self):
         use_icons = self.config_data.get("use_icons", True)
 
-        self.discover_btn.setText("🔍" if use_icons else "Search Network")
-        self.discover_btn.setToolTip("Search the network for Masterflex pumps" if use_icons else "")
+        if self.discover_btn.isEnabled():  # not while it says "Searching..."
+            self.discover_btn.setText("🔍 Search" if use_icons else "Search Network")
+        self.discover_btn.setToolTip("Search the network for the pump and fill in its address")
 
-        self.settings_btn.setText("⚙" if use_icons else "Hardware Settings")
-        self.settings_btn.setToolTip("Open Hardware Settings" if use_icons else "")
+        self.settings_btn.setText("⚙" if use_icons else "⚙ Settings")
+        self.settings_btn.setToolTip("Settings: hardware, updates, firmware and documentation")
 
         self.reset_vol_btn.setText("🔄" if use_icons else "Reset Vol")
         self.reset_vol_btn.setToolTip("Reset Cumulative Volume" if use_icons else "")
@@ -1644,7 +1637,7 @@ class MasterflexPumpGUI(QMainWindow):
         if msg:
             self.log_error(msg)
         self.discover_btn.setEnabled(True)
-        self.discover_btn.setText("Search Network")
+        self.update_button_styles()
 
     # --- Connecting -------------------------------------------------------------------
 
@@ -1746,7 +1739,7 @@ class MasterflexPumpGUI(QMainWindow):
             self.log_error("pycomm3 missing! Cannot discover.")
             return
 
-        self.log_msg("Searching network for MasterFlex Pump... (Please wait)")
+        self.log_msg("Searching the network for the Masterflex pump... (please wait)")
         self.discover_btn.setEnabled(False)
         self.discover_btn.setText("Searching...")
         threading.Thread(target=self._run_discovery, daemon=True).start()
@@ -1761,7 +1754,7 @@ class MasterflexPumpGUI(QMainWindow):
                     found_ip = dev.get("ip_address")
                     self.pump_model = str(dev.get("product_name") or "")
                     self.signals.log_msg_signal.emit(
-                        f"Found MasterFlex ({dev.get('product_name')}) at {found_ip}"
+                        f"Found the Masterflex pump ({dev.get('product_name')}) at {found_ip}"
                     )
                     break
 

@@ -923,3 +923,30 @@ def test_removing_a_token_asks_first(window, monkeypatch):
     window.cmd_remove_token("Material")
     assert "Material" not in window.token_inputs
     assert "Material" not in window.config_data["metadata_tokens"]
+
+
+# --- Settings window and labels --------------------------------------------------------
+
+
+def test_settings_window_saves_rpm_without_a_save_button(window, pump_gui):
+    from PyQt6.QtCore import Qt
+
+    dialog = pump_gui.SettingsDialog(window)
+    assert not dialog.windowFlags() & Qt.WindowType.WindowStaysOnTopHint  # not over other apps
+    assert not hasattr(dialog, "save_btn") and not hasattr(dialog, "open_log_btn")
+    dialog.rpm_spin.setValue(200)
+    assert window.hardware_max_rpm == 200 and window.config_data["max_rpm"] == 200
+    dialog.close()
+
+
+def test_button_labels_say_what_they_do(window):
+    window.config_data["use_icons"] = True
+    window.update_button_styles()
+    assert window.discover_btn.text() == "🔍 Search"
+    assert "Settings" in window.settings_btn.toolTip() and "Hardware" not in window.settings_btn.toolTip()
+    window.config_data["use_icons"] = False
+    window.update_button_styles()
+    assert window.discover_btn.text() == "Search Network" and window.settings_btn.text() == "⚙ Settings"
+    window.discover_btn.setEnabled(False)
+    window.reset_discover_btn("")  # after a search: back to the label for the current setting
+    assert window.discover_btn.isEnabled() and window.discover_btn.text() == "Search Network"
