@@ -7,6 +7,18 @@ the last, and changes that break existing settings or workflows bump the first.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-05
+
+### Fixed
+- **The pump now gets the flow unit and direction the app shows.** They were only sent when
+  you changed them, so after every start the pump was sent unit code 0 and clockwise, whatever
+  the screen said (mL/min and counter-clockwise by default). Now both are sent as soon as the
+  pump answers after connecting. If the pump is already running from its touchscreen, the app
+  waits until it stops, so connecting never reverses or rescales a running pump.
+  **After updating, check a short run:** if you had set up the tubing for the direction the pump
+  actually turned, it may now turn the other way. Pick the direction you want in the app.
+
+
 ## [1.4.0] - 2026-11-04
 
 A reworked window: safer controls, all the readouts on screen at once, and a layout that works
