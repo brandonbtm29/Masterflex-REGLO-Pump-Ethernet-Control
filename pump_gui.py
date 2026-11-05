@@ -1156,6 +1156,10 @@ class MasterflexPumpGUI(QMainWindow):
         # To put the old choice back if a change is cancelled:
         self._mode_id = self.mode_group.checkedId()
         self._unit_text = self.unit_menu.currentText()
+        self._direction_ccw = self.dir_ccw_radio.isChecked()
+        # Set when connecting: send the screen's flow unit and direction at the first reading.
+        self._setup_pending = False
+        self._setup_waiting_told = False
         # Sections open or closed as they were last time.
         collapsed = set(self.config_data.get("collapsed_sections") or [])
         for box in self.findChildren(CollapsibleBox):
@@ -1698,6 +1702,9 @@ class MasterflexPumpGUI(QMainWindow):
         self.connect_btn.setText("Disconnect")
         self.update_control_states()
         self.log_msg("EtherNet/IP Connected successfully.")
+        with self.ctrl_lock:
+            self._setup_pending = True  # sent by the comms thread once the pump has answered
+            self._setup_waiting_told = False
         self.polling = True
         threading.Thread(target=self.poll_pump_data, daemon=True).start()
 
@@ -2140,6 +2147,7 @@ class MasterflexPumpGUI(QMainWindow):
             (self.dir_cw_radio if ccw else self.dir_ccw_radio).setChecked(True)  # put it back
             self.dir_ccw_radio.blockSignals(False)
             return
+        self._direction_ccw = ccw
         with self.ctrl_lock:
             proto.set_bit(self.output_data, proto.DIRECTION_CCW, ccw)
         self.log_msg(f"Direction set to: {'CCW' if ccw else 'CW'}")
@@ -2282,9 +2290,34 @@ class MasterflexPumpGUI(QMainWindow):
         """One watchdog cycle: read the status, run the program, re-send the full output block."""
         read_error = self._read_input()
         if not read_error:
+            self._send_setup_if_pending()
             self._run_program()
         write_error = self._send_output()
         self._report_comm(read_error or write_error)
+
+    def _send_setup_if_pending(self):
+        """Comms thread, after connecting: put the flow unit and direction the screen shows into
+        the output block, so the pump gets them with the next write. (Before this fix they were
+        only sent when you changed them, so after a start the pump got unit code 0 and
+        clockwise whatever the screen said.) A pump that's already pumping (started from its
+        touchscreen) isn't rescaled or reversed under way: this waits until it stops."""
+        with self.ctrl_lock:
+            if not self._setup_pending:
+                return
+            if proto.decode_status(self.input_data).moving:
+                tell = not self._setup_waiting_told
+                self._setup_waiting_told = True
+            else:
+                unit, ccw = self._unit_text, self._direction_ccw
+                self.output_data[6] = proto.unit_code(unit)
+                proto.set_bit(self.output_data, proto.DIRECTION_CCW, ccw)
+                self._setup_pending = False
+                tell = None
+        if tell:
+            self.log_msg("The pump is running. The app sends its flow unit and direction when it stops.")
+        elif tell is None:
+            direction = "counter-clockwise" if ccw else "clockwise"
+            self.log_msg(f"Sent the flow unit ({unit}) and direction ({direction}) to the pump.")
 
     def poll_pump_data(self):
         while self.polling and self.connected and self.plc:
