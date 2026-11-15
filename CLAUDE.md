@@ -26,7 +26,7 @@ Machine-specific notes (clone paths, machine names) go in `CLAUDE.local.md`, whi
 
 ## Where code and data live
 - **Code** (this repo) is cloned outside SyncThing and syncs through GitHub only.
-- **Instrument data** stays in the SyncThing data folder, `~/SyncThing/UAkron Playground/MasterFlex Pump/` by default. Never copy data into the repo, and never commit the settings files listed below.
+- **Instrument data** stays in the SyncThing data folder, `~/SyncThing/MasterFlex Pump/` by default. Never copy data into the repo, and never commit the settings files listed below.
 - **How it works:** at startup the app `chdir`s into its data folder (`DATA_DIR`, override with `UAKRON_APP_DATA_DIR` or `UAKRON_DATA_DIR`). Every relative data path therefore resolves inside SyncThing. Run logs are `Data/run_log.csv` and `Data/run_log_backup.csv` there (`RUN_LOG`, `RUN_LOG_BACKUP`). Files that ship with the code (the icon) must be loaded via `script_dir`, never by bare relative name.
 - **Settings folder:** `pump_config.json` is read from `CONFIG_DIR`, resolved by `settings_location.py`. Default: this repo folder (gitignored), so a fresh clone starts from the app's defaults. The per-machine pointer `settings_location.json` (gitignored), set from the app's "Settings Folder" box, can move it; a relative path is relative to the data folder (e.g. `Settings`). `UAKRON_SETTINGS_DIR` overrides the pointer. `pump_config.example.json` documents the keys.
 - Tests and `scripts/make_screenshot.py` point both env vars at a temp folder so they never touch real data or settings.

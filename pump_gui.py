@@ -6,16 +6,30 @@ import os
 import sys
 
 # --- Code vs data -----------------------------------------------------------
-# Code lives in a git clone; data (run logs) lives in the SyncThing data folder:
-# ~/SyncThing/UAkron Playground/MasterFlex Pump by default. Override with
+# Code lives in a git clone; data (run logs) lives in the app's own SyncThing folder:
+# ~/SyncThing/MasterFlex Pump by default (see default_data_dir). Override with
 # UAKRON_APP_DATA_DIR (this app's folder) or UAKRON_DATA_DIR (the parent folder).
 # Importing this module only works out these paths; main() creates folders and
 # changes into the data folder.
 script_dir = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.environ.get("UAKRON_APP_DATA_DIR") or os.path.join(
-    os.environ.get("UAKRON_DATA_DIR")
-    or os.path.join(os.path.expanduser("~"), "SyncThing", "UAkron Playground"),
-    "MasterFlex Pump",
+DATA_FOLDER_NAME = "MasterFlex Pump"
+OLD_SYNC_FOLDER = "UAkron Playground"  # the SyncThing folder all the lab apps shared before Nov 2026
+
+
+def default_data_dir(home=None):
+    """``~/SyncThing/MasterFlex Pump``: the app's own SyncThing folder. A computer that doesn't have it
+    yet but still has the data in the old shared folder (``~/SyncThing/UAkron Playground/...``)
+    keeps using that one until SyncThing brings the new one."""
+    sync = os.path.join(home or os.path.expanduser("~"), "SyncThing")
+    new = os.path.join(sync, DATA_FOLDER_NAME)
+    old = os.path.join(sync, OLD_SYNC_FOLDER, DATA_FOLDER_NAME)
+    return old if not os.path.isdir(new) and os.path.isdir(old) else new
+
+
+DATA_DIR = os.environ.get("UAKRON_APP_DATA_DIR") or (
+    os.path.join(os.environ["UAKRON_DATA_DIR"], DATA_FOLDER_NAME)
+    if os.environ.get("UAKRON_DATA_DIR")
+    else default_data_dir()
 )
 # Settings live in the app folder by default, gitignored. The "Settings Folder" option
 # (settings_location.py) can point them at a synced folder instead, e.g. "Settings"
