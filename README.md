@@ -136,7 +136,7 @@ The app keeps your **data** apart from the code:
   The log also has the app's own notes (start-up, updates) and pycomm3's warnings and errors,
   but not pycomm3's routine line for every message to the pump (about 40 a second), so older
   errors aren't pushed out. It keeps three files of 1 MB.
-- **Data folder**: `~/SyncThing/UAkron Playground/MasterFlex Pump` by default (it's created if
+- **Data folder**: `~/SyncThing/MasterFlex Pump` by default (it's created if
   missing). Run logs go in its `Data/` folder: `run_log.csv` (runs you chose to save) and
   `run_log_backup.csv` (every run). To use a different folder, set the environment variable
   `UAKRON_APP_DATA_DIR` to the folder, or `UAKRON_DATA_DIR` to a parent folder (the app then
