@@ -7,11 +7,23 @@ the last, and changes that break existing settings or workflows bump the first.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-21
+
 ### Changed
 - The data folder is now the app's own SyncThing folder, `~/SyncThing/MasterFlex Pump`, instead of
   `MasterFlex Pump` inside the shared `~/SyncThing/UAkron Playground` folder (retired in November 2026).
   A computer that has only the old folder keeps using it until SyncThing brings the new one.
   `UAKRON_DATA_DIR` (the folder that holds the app's data folder) now defaults to `~/SyncThing`.
+
+### Fixed
+- **The pump now gets the flow unit and direction the app shows.** They were only sent when
+  you changed them, so after every start the pump was sent unit code 0 and clockwise, whatever
+  the screen said (mL/min and counter-clockwise by default). Now both are sent as soon as the
+  pump answers after connecting. If the pump is already running from its touchscreen, the app
+  waits until it stops, so connecting never reverses or rescales a running pump.
+  **After updating, check a short run:** if you had set up the tubing for the direction the pump
+  actually turned, it may now turn the other way. Pick the direction you want in the app.
+
 
 ## [1.4.0] - 2026-11-04
 

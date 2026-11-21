@@ -1,6 +1,9 @@
 """Communication errors with the pump are reported instead of swallowed."""
 
+from conftest import FakePump, fake_input
 from pycomm3.exceptions import CommError
+
+import protocol as proto
 
 
 def console(window):
@@ -152,3 +155,58 @@ def test_auto_connect_never_disconnects(pump_gui, qapp, monkeypatch):
         window.connected = False
         window.timer.stop()
         window.close()
+
+
+# --- Flow unit and direction are sent once connected -------------------------------------
+
+
+def connect_without_thread(window, pump, monkeypatch):
+    """on_connect_result as after a real connect, but the test runs the comms cycles itself."""
+    monkeypatch.setattr(window, "poll_pump_data", lambda: None)
+    window.on_connect_result(pump, "")
+
+
+def test_unit_and_direction_on_screen_are_sent_after_connecting(window, monkeypatch):
+    # The defaults (mL/min, counter-clockwise): before the fix they were never sent unless changed.
+    assert window.unit_menu.currentText() == "mL/min" and window.dir_ccw_radio.isChecked()
+    pump = FakePump(fake_input(status=0b10000001))  # connected, not running
+    connect_without_thread(window, pump, monkeypatch)
+    window._poll_once()
+    sent = pump.writes[-1]
+    assert sent[6] == proto.unit_code("mL/min")
+    assert sent[0] >> proto.DIRECTION_CCW & 1
+    assert "Sent the flow unit (mL/min) and direction (counter-clockwise)" in console(window)
+
+
+def test_saved_unit_and_direction_are_sent_after_connecting(window, monkeypatch):
+    window.unit_menu.setCurrentText("uL/min")
+    window.dir_cw_radio.setChecked(True)
+    pump = FakePump(fake_input(status=0b10000001))
+    connect_without_thread(window, pump, monkeypatch)
+    window._poll_once()
+    assert pump.writes[-1][6] == proto.unit_code("uL/min")
+    assert not pump.writes[-1][0] >> proto.DIRECTION_CCW & 1
+
+
+def test_a_pump_running_at_connect_is_not_reversed_until_it_stops(window, monkeypatch):
+    pump = FakePump(fake_input(status=0b00000011))  # running from its touchscreen (local mode)
+    connect_without_thread(window, pump, monkeypatch)
+    window._poll_once()
+    window._poll_once()
+    assert pump.writes[-1][6] == 0 and not pump.writes[-1][0] >> proto.DIRECTION_CCW & 1
+    assert console(window).count("sends its flow unit and direction when it stops") == 1  # said once
+    pump.input_data = fake_input(status=0b00000001)  # stopped
+    window._poll_once()
+    assert pump.writes[-1][6] == proto.unit_code("mL/min")
+    assert pump.writes[-1][0] >> proto.DIRECTION_CCW & 1
+
+
+def test_reconnecting_sends_them_again(window, monkeypatch):
+    pump = FakePump(fake_input(status=0b10000001))
+    connect_without_thread(window, pump, monkeypatch)
+    window._poll_once()
+    window.disconnect()
+    window.output_data[6] = 0  # e.g. the pump was power-cycled meanwhile
+    connect_without_thread(window, pump, monkeypatch)
+    window._poll_once()
+    assert pump.writes[-1][6] == proto.unit_code("mL/min")
