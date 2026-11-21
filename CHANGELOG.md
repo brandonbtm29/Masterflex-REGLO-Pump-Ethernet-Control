@@ -7,13 +7,13 @@ the last, and changes that break existing settings or workflows bump the first.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-21
+
 ### Changed
 - The data folder is now the app's own SyncThing folder, `~/SyncThing/MasterFlex Pump`, instead of
   `MasterFlex Pump` inside the shared `~/SyncThing/UAkron Playground` folder (retired in November 2026).
   A computer that has only the old folder keeps using it until SyncThing brings the new one.
   `UAKRON_DATA_DIR` (the folder that holds the app's data folder) now defaults to `~/SyncThing`.
-
-## [1.4.1] - 2026-11-05
 
 ### Fixed
 - **The pump now gets the flow unit and direction the app shows.** They were only sent when
